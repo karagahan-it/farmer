@@ -4,14 +4,15 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import org.maplibre.android.MapLibre
 import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.geometry.LatLng
@@ -27,11 +28,19 @@ fun MapLibrePanel(latitude: Double? = null, longitude: Double? = null) {
             onCreate(null)
             getMapAsync { map ->
                 map.setStyle("https://demotiles.maplibre.org/style.json")
-                val target = if (latitude != null && longitude != null) LatLng(latitude, longitude) else LatLng(32.0, 53.0)
-                map.cameraPosition = CameraPosition.Builder().target(target).zoom(if (latitude != null) 15.0 else 4.0).build()
+                map.cameraPosition = CameraPosition.Builder().target(LatLng(32.0, 53.0)).zoom(4.0).build()
             }
         }
     }
+
+    LaunchedEffect(latitude, longitude) {
+        if (latitude != null && longitude != null) {
+            mapView.getMapAsync { map ->
+                map.cameraPosition = CameraPosition.Builder().target(LatLng(latitude, longitude)).zoom(16.0).build()
+            }
+        }
+    }
+
     DisposableEffect(lifecycle, mapView) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
@@ -46,5 +55,5 @@ fun MapLibrePanel(latitude: Double? = null, longitude: Double? = null) {
         lifecycle.addObserver(observer)
         onDispose { lifecycle.removeObserver(observer) }
     }
-    AndroidView(factory = { mapView }, modifier = Modifier.fillMaxWidth().height(280.dp))
+    AndroidView(factory = { mapView }, modifier = Modifier.fillMaxWidth().height(360.dp))
 }
