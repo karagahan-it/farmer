@@ -21,11 +21,17 @@ import ir.topograde.app.data.ProjectStore
 import ir.topograde.app.geometry.TerrainEngine
 import ir.topograde.app.gnss.GnssFix
 import ir.topograde.app.gnss.NmeaParser
+import ir.topograde.app.gnss.TcpGnssTransport
+import ir.topograde.app.gnss.GnssConnectionState
+import ir.topograde.app.gnss.GnssTransport
+import ir.topograde.app.ntrip.NtripClient
+import ir.topograde.app.ntrip.NtripConfig
 import ir.topograde.app.map.MapLibrePanel
 import ir.topograde.app.model.CoordinateSystem
 import ir.topograde.app.model.Project
 import ir.topograde.app.model.SurveyPoint
 import kotlin.math.max
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -101,6 +107,12 @@ private enum class Screen { Projects, Survey }
     var exportDialog by remember { mutableStateOf(false) }
     var nmeaDialog by remember { mutableStateOf(false) }
     var gnssFix by remember { mutableStateOf<GnssFix?>(null) }
+    var tcpDialog by remember { mutableStateOf(false) }
+    var connectionState by remember { mutableStateOf<GnssConnectionState>(GnssConnectionState.Disconnected) }
+    var activeTransport by remember { mutableStateOf<GnssTransport?>(null) }
+    var ntripDialog by remember { mutableStateOf(false) }
+    var ntripStatus by remember { mutableStateOf("خاموش") }
+    val scope = rememberCoroutineScope()
     Scaffold(
         topBar = { TopAppBar(title = { Text(project.name) }, navigationIcon = { TextButton(onClick = onBack) { Text("بازگشت") } }) },
         floatingActionButton = { FloatingActionButton(onClick = { addDialog = true }) { Text("+ نقطه") } }
@@ -111,13 +123,12 @@ private enum class Screen { Projects, Survey }
                     AssistChip(onClick = { importDialog = true }, label = { Text("Import CSV") })
                     AssistChip(onClick = { exportDialog = true }, label = { Text("Export CSV") })
                     AssistChip(onClick = {}, label = { Text(project.coordinateSystem.name) })
-                    AssistChip(onClick = { nmeaDialog = true }, label = { Text("GNSS / NMEA") })
+                    AssistChip(onClick = { nmeaDialog = true }, label = { Text("NMEA Test") })
+                    AssistChip(onClick = { tcpDialog = true }, label = { Text("TCP GNSS") })
+                    AssistChip(onClick = { ntripDialog = true }, label = { Text("NTRIP") })
                 }
             }
-            item { GnssStatusCard(gnssFix) }
-            item { MapLibrePanel(gnssFix?.latitude, gnssFix?.longitude) }
-            item { SurveySummary(points) }
-            item { PointMap(points) }
+            item { TabletFieldWorkspace(points, gnssFix, connectionState, ntripStatus) }
             item { Text("نقاط برداشت (${points.size})", style = MaterialTheme.typography.titleMedium) }
             items(points, key = { it.id }) { p -> PointRow(p, onEdit = { editPoint = p }, onDelete = { store.deletePoint(project.id,p.id); points = store.getPoints(project.id) }) }
         }
@@ -127,6 +138,20 @@ private enum class Screen { Projects, Survey }
     if (importDialog) CsvImportDialog(onDismiss = { importDialog = false }) { csv -> store.appendPoints(project.id, CsvCodec.parse(csv)); points = store.getPoints(project.id); importDialog = false }
     if (exportDialog) CsvExportDialog(CsvCodec.export(points)) { exportDialog = false }
     if (nmeaDialog) NmeaDialog(onDismiss = { nmeaDialog = false }) { raw -> gnssFix = NmeaParser.parse(raw); nmeaDialog = false }
+    if (tcpDialog) TcpGnssDialog(onDismiss = { tcpDialog = false }) { host, port ->
+        tcpDialog = false
+        scope.launch {
+            val transport = TcpGnssTransport(host, port)
+            activeTransport = transport
+            transport.connect()
+            transport.state.collect { st ->
+                connectionState = st
+                if (st is GnssConnectionState.Connected) {
+                    transport.lines.collect { line -> NmeaParser.parse(line)?.let { gnssFix = it } }
+                }
+            }
+        }
+    }
 }
 
 @Composable private fun PointRow(p: SurveyPoint, onEdit: () -> Unit, onDelete: () -> Unit) {
@@ -195,6 +220,92 @@ private enum class Screen { Projects, Survey }
         title = { Text("تست GNSS / NMEA GGA") },
         text = { OutlinedTextField(raw, { raw = it }, modifier = Modifier.fillMaxWidth().height(180.dp), label = { Text("NMEA sentence") }) },
         confirmButton = { TextButton(onClick = { onParse(raw) }) { Text("Parse") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("انصراف") } }
+    )
+}
+
+
+@Composable private fun TabletFieldWorkspace(points: List<SurveyPoint>, fix: GnssFix?, state: GnssConnectionState) {
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val tablet = maxWidth >= 720.dp
+        if (tablet) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(Modifier.weight(1.65f), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    MapLibrePanel(fix?.latitude, fix?.longitude)
+                    PointMap(points)
+                }
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    ConnectionCard(state)
+                    NtripStatusCard(ntripStatus)
+                    GnssStatusCard(fix)
+                    SurveySummary(points)
+                }
+            }
+        } else {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                ConnectionCard(state)
+                NtripStatusCard(ntripStatus)
+                GnssStatusCard(fix)
+                MapLibrePanel(fix?.latitude, fix?.longitude)
+                SurveySummary(points)
+                PointMap(points)
+            }
+        }
+    }
+}
+
+@Composable private fun ConnectionCard(state: GnssConnectionState) {
+    ElevatedCard(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp)) {
+        Text("اتصال گیرنده", style = MaterialTheme.typography.titleMedium)
+        val text = when (state) {
+            GnssConnectionState.Disconnected -> "قطع"
+            GnssConnectionState.Connecting -> "در حال اتصال…"
+            is GnssConnectionState.Connected -> "متصل: ${state.description}"
+            is GnssConnectionState.Error -> "خطا: ${state.message}"
+        }
+        Text(text)
+    } }
+}
+
+@Composable private fun TcpGnssDialog(onDismiss: () -> Unit, onConnect: (String, Int) -> Unit) {
+    var host by remember { mutableStateOf("") }
+    var port by remember { mutableStateOf("9001") }
+    val pv = port.toIntOrNull()
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("اتصال TCP به گیرنده GNSS") },
+        text = { Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            OutlinedTextField(host, { host = it.trim() }, label = { Text("IP / Host") }, singleLine = true)
+            OutlinedTextField(port, { port = it.filter(Char::isDigit).take(5) }, label = { Text("Port") }, singleLine = true)
+            Text("نمونه: 192.168.4.1 : 9001")
+        } },
+        confirmButton = { TextButton(enabled = host.isNotBlank() && pv != null && pv in 1..65535, onClick = { onConnect(host, pv!!) }) { Text("اتصال") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("انصراف") } }
+    )
+}
+
+
+@Composable private fun NtripStatusCard(status: String) {
+    ElevatedCard(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp)) {
+        Text("NTRIP / RTCM", style = MaterialTheme.typography.titleMedium)
+        Text(status)
+    } }
+}
+
+@Composable private fun NtripDialog(onDismiss: () -> Unit, onConnect: (String, Int, String, String, String) -> Unit) {
+    var host by remember { mutableStateOf("") }; var port by remember { mutableStateOf("2101") }; var mount by remember { mutableStateOf("") }; var user by remember { mutableStateOf("") }; var pass by remember { mutableStateOf("") }
+    val pv = port.toIntOrNull()
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("تنظیمات NTRIP") },
+        text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedTextField(host, { host = it.trim() }, label = { Text("Caster Host") }, singleLine = true)
+            OutlinedTextField(port, { port = it.filter(Char::isDigit).take(5) }, label = { Text("Port") }, singleLine = true)
+            OutlinedTextField(mount, { mount = it.trim() }, label = { Text("Mountpoint") }, singleLine = true)
+            OutlinedTextField(user, { user = it }, label = { Text("Username") }, singleLine = true)
+            OutlinedTextField(pass, { pass = it }, label = { Text("Password") }, singleLine = true)
+        } },
+        confirmButton = { TextButton(enabled = host.isNotBlank() && mount.isNotBlank() && pv != null && pv in 1..65535, onClick = { onConnect(host, pv!!, mount, user, pass) }) { Text("اتصال") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("انصراف") } }
     )
 }

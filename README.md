@@ -1,24 +1,29 @@
 # TopoGrade / Farmer
 
-Android app for offline topographic surveying, terrain modeling and grading workflows.
+Tablet-first Android app for topographic surveying, terrain modeling and RTK field workflows.
 
-## Current development — v0.2
-- Offline project creation
-- Persistent project storage
-- Manual XYZ survey-point entry
-- Persistent survey points per project
-- Elevation summary: min / max / average
-- Initial 2D point-map visualization
-- Geometry foundation for TIN and contours
-- Persian-first field workflow
+## Current development — v0.4
+- Tablet-first two-pane field workspace
+- Offline project creation and persistence
+- Manual XYZ points + edit/delete
+- CSV import/export
+- LOCAL / WGS84 / UTM project CRS
+- Delaunay TIN foundation
+- MapLibre map
+- NMEA GGA parser
+- GNSS status: GPS / DGPS / RTK FIX / RTK FLOAT
+- TCP GNSS transport
+- Bluetooth RFCOMM GNSS transport foundation
+- NTRIP client with RTCM forwarding to active GNSS transport
+- Android CI build check
 
 ## Next
-1. MapLibre offline basemap
-2. UTM / WGS84 coordinate handling
-3. CSV import/export in UI
-4. Delaunay TIN + contour rendering
-5. Bluetooth/USB/TCP GNSS receiver adapters
-6. NMEA parser + NTRIP/RTCM + RTK FIX/FLOAT status
-7. Cut/fill and grading design
+1. Bluetooth paired-device picker + runtime permission flow
+2. Real-time GNSS session controller with reconnect/watchdog
+3. Save FIX directly as survey point
+4. GGA upload to NTRIP caster where required
+5. Offline MapLibre tile packs
+6. UTM/WGS84 conversion engine
+7. Contour rendering and cut/fill surfaces
 
 > Clean-room implementation; no proprietary APK source or assets are copied.
