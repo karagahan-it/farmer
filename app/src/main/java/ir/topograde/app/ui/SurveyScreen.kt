@@ -34,6 +34,11 @@ import ir.topograde.app.geometry.FieldMetrics
 import ir.topograde.app.grading.DesignPlane
 import ir.topograde.app.grading.GradingPreset
 import ir.topograde.app.grading.HeatmapEngine
+import ir.topograde.app.guidance.BladeGeometryEngine
+import ir.topograde.app.guidance.CrossSlopeGuidance
+import ir.topograde.app.guidance.MachineGeometry
+import ir.topograde.app.guidance.OrientationProvider
+import ir.topograde.app.logging.GuidanceLogEntry
 import ir.topograde.app.geometry.TerrainEngine
 import ir.topograde.app.gnss.BluetoothGnssTransport
 import ir.topograde.app.gnss.FixType
@@ -68,6 +73,8 @@ fun SurveyScreen(store: ProjectStore, project: Project, onBack: () -> Unit) {
     val gnssFix by controller.fix.collectAsState()
     val gnssQuality by controller.quality.collectAsState()
     val offlineManager = remember(context) { OfflineMapManager(context.applicationContext) }
+    val orientationProvider = remember(context) { OrientationProvider(context.applicationContext) }
+    val orientation by orientationProvider.orientation.collectAsState()
     var points by remember(project.id) { mutableStateOf(store.getPoints(project.id)) }
     var track by remember(project.id) { mutableStateOf(store.getTrack(project.id)) }
     var boundary by remember(project.id) { mutableStateOf(store.getBoundary(project.id)) }
@@ -75,6 +82,8 @@ fun SurveyScreen(store: ProjectStore, project: Project, onBack: () -> Unit) {
     var heightSettings by remember(project.id) { mutableStateOf(store.getHeightSettings(project.id)) }
     var designPlane by remember(project.id) { mutableStateOf(store.getDesignPlane(project.id)) }
     var gradingPreset by remember(project.id) { mutableStateOf(store.getGradingPreset(project.id)) }
+    var machineGeometry by remember(project.id) { mutableStateOf(store.getMachineGeometry(project.id)) }
+    var guidanceLogs by remember(project.id) { mutableStateOf(store.getGuidanceLogs(project.id)) }
     var tracking by remember { mutableStateOf(false) }
     var lastTrackAt by remember { mutableLongStateOf(0L) }
     var averaging by remember { mutableStateOf(false) }
@@ -91,6 +100,11 @@ fun SurveyScreen(store: ProjectStore, project: Project, onBack: () -> Unit) {
     var offlinePacksDialog by remember { mutableStateOf(false) }
     var gradingPresetDialog by remember { mutableStateOf(false) }
     var gradingExportCsv by remember { mutableStateOf<String?>(null) }
+    var fullGuidance by remember { mutableStateOf(false) }
+    var machineGeometryDialog by remember { mutableStateOf(false) }
+    var replayDialog by remember { mutableStateOf(false) }
+    var guidanceRecording by remember { mutableStateOf(false) }
+    var lastGuidanceLogAt by remember { mutableLongStateOf(0L) }
     var ntripStatus by remember { mutableStateOf("خاموش") }
     var offlineStatus by remember { mutableStateOf("دانلود نشده") }
     var fieldMessage by remember { mutableStateOf<String?>(null) }
@@ -117,6 +131,28 @@ fun SurveyScreen(store: ProjectStore, project: Project, onBack: () -> Unit) {
         }
     }
 
+    fun fixToAntennaPoint(fix: GnssFix): SurveyPoint? {
+        val rawZ = fix.altitude ?: return null
+        val z = when (heightSettings.inputType) {
+            ir.topograde.app.survey.HeightInputType.GGA_ORTHOMETRIC -> rawZ
+            ir.topograde.app.survey.HeightInputType.ELLIPSOIDAL -> rawZ - heightSettings.geoidUndulationMeters
+        }
+        return when (project.coordinateSystem) {
+            CoordinateSystem.WGS84 -> SurveyPoint(System.currentTimeMillis(), "ANT", fix.longitude, fix.latitude, z)
+            CoordinateSystem.UTM -> {
+                val zone = project.utmZone ?: return null
+                val u = runCatching { CoordinateConverter.wgs84ToUtm(fix.latitude, fix.longitude, zone) }.getOrNull() ?: return null
+                SurveyPoint(System.currentTimeMillis(), "ANT", u.easting, u.northing, z)
+            }
+            CoordinateSystem.LOCAL -> {
+                val cal = localCalibration ?: return null
+                val u = runCatching { CoordinateConverter.wgs84ToUtm(fix.latitude, fix.longitude, cal.utmZone) }.getOrNull() ?: return null
+                val xy = cal.transform.apply(u.easting, u.northing)
+                SurveyPoint(System.currentTimeMillis(), "ANT", xy.first, xy.second, z)
+            }
+        }
+    }
+
     fun pointToMap(point: SurveyPoint): MapLatLon? {
         return when (project.coordinateSystem) {
             CoordinateSystem.WGS84 -> MapLatLon(point.y, point.x)
@@ -137,6 +173,7 @@ fun SurveyScreen(store: ProjectStore, project: Project, onBack: () -> Unit) {
     val mapTrack = remember(track, localCalibration, project) { track.mapNotNull { pointToMap(it) } }
     val mapBoundary = remember(boundary, localCalibration, project) { boundary.mapNotNull { pointToMap(it) } }
     val currentProjectPoint = gnssFix?.let { fixToPoint(it, "LIVE") }
+    val currentAntennaPoint = gnssFix?.let { fixToAntennaPoint(it) }
     val mapHeat = remember(points, gradingPreset, localCalibration, project) {
         val preset = gradingPreset
         if (preset == null) emptyList()
@@ -159,10 +196,32 @@ fun SurveyScreen(store: ProjectStore, project: Project, onBack: () -> Unit) {
         }
     }
     DisposableEffect(project.id) {
+        orientationProvider.start()
         onDispose {
+            orientationProvider.stop()
             controller.stop()
             ntripJob?.cancel()
             ntripClient?.close()
+        }
+    }
+
+    LaunchedEffect(currentAntennaPoint, orientation, gradingPreset, guidanceRecording) {
+        val antenna = currentAntennaPoint
+        val preset = gradingPreset
+        if (guidanceRecording && antenna != null && preset != null && System.currentTimeMillis() - lastGuidanceLogAt >= 1000L) {
+            val blade = BladeGeometryEngine.compute(antenna.x, antenna.y, antenna.z, orientation, machineGeometry)
+            val surface = preset.toSurface()
+            val guidance = ir.topograde.app.grading.GuidanceEngine.evaluate(blade.centerX, blade.centerY, blade.centerZ, surface, 0.03)
+            val cross = CrossSlopeGuidance.evaluate(blade, orientation, machineGeometry, surface)
+            val entry = GuidanceLogEntry(
+                System.currentTimeMillis(), antenna.x, antenna.y, antenna.z,
+                orientation.headingDeg, orientation.rollDeg, orientation.pitchDeg,
+                blade.centerZ, guidance.targetZ, guidance.delta,
+                cross.actualPercent, cross.targetPercent
+            )
+            store.appendGuidanceLog(project.id, entry)
+            guidanceLogs = store.getGuidanceLogs(project.id)
+            lastGuidanceLogAt = System.currentTimeMillis()
         }
     }
 
@@ -260,6 +319,7 @@ fun SurveyScreen(store: ProjectStore, project: Project, onBack: () -> Unit) {
                     AssistChip(onClick = { heightDialog = true }, label = { Text("Antenna / Geoid") })
                     AssistChip(onClick = { designDialog = true }, label = { Text("Design Plane") })
                     AssistChip(onClick = { gradingPresetDialog = true }, label = { Text("Grading Surface") })
+                    AssistChip(onClick = { fullGuidance = true }, label = { Text("Operator Guidance") })
                     if (project.coordinateSystem == CoordinateSystem.LOCAL) AssistChip(onClick = { calibrationDialog = true }, label = { Text("Local Calibration") })
                     AssistChip(onClick = { importDialog = true }, label = { Text("Import CSV") })
                     AssistChip(onClick = { exportDialog = true }, label = { Text("Export CSV") })
@@ -360,6 +420,26 @@ fun SurveyScreen(store: ProjectStore, project: Project, onBack: () -> Unit) {
     if (offlinePacksDialog) OfflinePackManagerDialog(offlineManager) { offlinePacksDialog = false }
     if (gradingPresetDialog) GradingPresetDialog(gradingPreset, { gradingPresetDialog = false }) { preset -> store.saveGradingPreset(project.id, preset); gradingPreset = preset; gradingPresetDialog = false; fieldMessage = "Grading Surface ذخیره شد" }
     gradingExportCsv?.let { csv -> GradingExportDialog(csv) { gradingExportCsv = null } }
+    if (fullGuidance) FullScreenGuidance(
+        antennaPoint = currentAntennaPoint,
+        orientation = orientation,
+        geometry = machineGeometry,
+        preset = gradingPreset,
+        recording = guidanceRecording,
+        logCount = guidanceLogs.size,
+        imuAvailable = orientationProvider.available(),
+        onClose = { fullGuidance = false },
+        onToggleRecording = { guidanceRecording = !guidanceRecording },
+        onOpenGeometry = { machineGeometryDialog = true },
+        onReplay = { replayDialog = true }
+    )
+    if (machineGeometryDialog) MachineGeometryDialog(machineGeometry, { machineGeometryDialog = false }) { g ->
+        store.saveMachineGeometry(project.id, g)
+        machineGeometry = g
+        machineGeometryDialog = false
+        fieldMessage = "Machine Geometry ذخیره شد"
+    }
+    if (replayDialog) GuidanceReplayDialog(guidanceLogs) { replayDialog = false }
     if (calibrationDialog) {
         LocalCalibrationDialog(
             onDismiss = { calibrationDialog = false },

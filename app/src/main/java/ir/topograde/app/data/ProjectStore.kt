@@ -6,6 +6,8 @@ import ir.topograde.app.geo.Similarity2D
 import ir.topograde.app.grading.DesignPlane
 import ir.topograde.app.grading.GradingMode
 import ir.topograde.app.grading.GradingPreset
+import ir.topograde.app.guidance.MachineGeometry
+import ir.topograde.app.logging.GuidanceLogEntry
 import ir.topograde.app.model.CoordinateSystem
 import ir.topograde.app.model.Project
 import ir.topograde.app.model.SurveyPoint
@@ -102,6 +104,46 @@ class ProjectStore(context: Context) {
             )
         }.getOrNull()
     }
+    fun saveMachineGeometry(projectId:Long, geometry:MachineGeometry) {
+        val o=JSONObject()
+            .put("forward",geometry.antennaToBladeForwardM)
+            .put("right",geometry.antennaToBladeRightM)
+            .put("down",geometry.antennaToBladeDownM)
+            .put("bladeWidth",geometry.bladeWidthM)
+        prefs.edit().putString("machine_$projectId",o.toString()).apply()
+    }
+    fun getMachineGeometry(projectId:Long):MachineGeometry {
+        val raw=prefs.getString("machine_$projectId",null) ?: return MachineGeometry()
+        return runCatching {
+            val o=JSONObject(raw)
+            MachineGeometry(o.optDouble("forward",2.5),o.optDouble("right",0.0),o.optDouble("down",2.0),o.optDouble("bladeWidth",3.7))
+        }.getOrDefault(MachineGeometry())
+    }
+    fun getGuidanceLogs(projectId:Long):List<GuidanceLogEntry> {
+        val arr=JSONArray(prefs.getString("guidance_log_$projectId","[]")?:"[]")
+        return buildList {
+            for(i in 0 until arr.length()){
+                val o=arr.getJSONObject(i)
+                add(GuidanceLogEntry(
+                    o.getLong("timestamp"),o.getDouble("x"),o.getDouble("y"),o.getDouble("antennaZ"),
+                    o.getDouble("headingDeg"),o.getDouble("rollDeg"),o.getDouble("pitchDeg"),
+                    o.getDouble("bladeCenterZ"),o.getDouble("targetZ"),o.getDouble("deltaZ"),
+                    o.getDouble("actualCrossSlopePercent"),o.getDouble("targetCrossSlopePercent")
+                ))
+            }
+        }
+    }
+    fun appendGuidanceLog(projectId:Long, e:GuidanceLogEntry) {
+        val list=getGuidanceLogs(projectId)+e
+        val arr=JSONArray()
+        list.takeLast(10000).forEach { x -> arr.put(JSONObject()
+            .put("timestamp",x.timestamp).put("x",x.x).put("y",x.y).put("antennaZ",x.antennaZ)
+            .put("headingDeg",x.headingDeg).put("rollDeg",x.rollDeg).put("pitchDeg",x.pitchDeg)
+            .put("bladeCenterZ",x.bladeCenterZ).put("targetZ",x.targetZ).put("deltaZ",x.deltaZ)
+            .put("actualCrossSlopePercent",x.actualCrossSlopePercent).put("targetCrossSlopePercent",x.targetCrossSlopePercent)) }
+        prefs.edit().putString("guidance_log_$projectId",arr.toString()).apply()
+    }
+    fun clearGuidanceLogs(projectId:Long){ prefs.edit().remove("guidance_log_$projectId").apply() }
     fun saveLocalCalibration(projectId: Long, calibration: LocalSiteCalibration) {
         val t = calibration.transform
         val o = JSONObject().put("utmZone", calibration.utmZone).put("north", calibration.northernHemisphere).put("scale", t.scale).put("rotationRad", t.rotationRad).put("tx", t.tx).put("ty", t.ty)
