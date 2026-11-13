@@ -20,7 +20,7 @@ fun ProjectsScreen(store: ProjectStore, onOpen: (Project) -> Unit) {
     var showCreate by remember { mutableStateOf(false) }
     Scaffold(
         topBar = { TopAppBar(title = { Text("TopoGrade | پروژه‌ها") }) },
-        floatingActionButton = { ExtendedFloatingActionButton(onClick = { showCreate = true }, text = { Text("پروژه جدید") }) }
+        floatingActionButton = { FloatingActionButton(onClick = { showCreate = true }) { Text("+") } }
     ) { pad ->
         if (projects.isEmpty()) {
             Box(Modifier.padding(pad).fillMaxSize(), contentAlignment = Alignment.Center) { Text("هنوز پروژه‌ای ساخته نشده است") }

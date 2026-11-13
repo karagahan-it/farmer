@@ -136,7 +136,7 @@ fun SurveyScreen(store: ProjectStore, project: Project, onBack: () -> Unit) {
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = { TopAppBar(title = { Text(project.name + " | " + project.coordinateSystem.title) }, navigationIcon = { TextButton(onClick = onBack) { Text("بازگشت") } }) },
-        floatingActionButton = { ExtendedFloatingActionButton(onClick = { addDialog = true }, text = { Text("+ نقطه دستی") }) }
+        floatingActionButton = { FloatingActionButton(onClick = { addDialog = true }) { Text("+") } }
     ) { pad ->
         LazyColumn(Modifier.padding(pad).fillMaxSize(), contentPadding = PaddingValues(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item {
