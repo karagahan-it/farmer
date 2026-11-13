@@ -19,6 +19,9 @@ import androidx.compose.ui.unit.dp
 import ir.topograde.app.data.CsvCodec
 import ir.topograde.app.data.ProjectStore
 import ir.topograde.app.geometry.TerrainEngine
+import ir.topograde.app.gnss.GnssFix
+import ir.topograde.app.gnss.NmeaParser
+import ir.topograde.app.map.MapLibrePanel
 import ir.topograde.app.model.CoordinateSystem
 import ir.topograde.app.model.Project
 import ir.topograde.app.model.SurveyPoint
@@ -96,6 +99,8 @@ private enum class Screen { Projects, Survey }
     var editPoint by remember { mutableStateOf<SurveyPoint?>(null) }
     var importDialog by remember { mutableStateOf(false) }
     var exportDialog by remember { mutableStateOf(false) }
+    var nmeaDialog by remember { mutableStateOf(false) }
+    var gnssFix by remember { mutableStateOf<GnssFix?>(null) }
     Scaffold(
         topBar = { TopAppBar(title = { Text(project.name) }, navigationIcon = { TextButton(onClick = onBack) { Text("بازگشت") } }) },
         floatingActionButton = { FloatingActionButton(onClick = { addDialog = true }) { Text("+ نقطه") } }
@@ -106,8 +111,11 @@ private enum class Screen { Projects, Survey }
                     AssistChip(onClick = { importDialog = true }, label = { Text("Import CSV") })
                     AssistChip(onClick = { exportDialog = true }, label = { Text("Export CSV") })
                     AssistChip(onClick = {}, label = { Text(project.coordinateSystem.name) })
+                    AssistChip(onClick = { nmeaDialog = true }, label = { Text("GNSS / NMEA") })
                 }
             }
+            item { GnssStatusCard(gnssFix) }
+            item { MapLibrePanel(gnssFix?.latitude, gnssFix?.longitude) }
             item { SurveySummary(points) }
             item { PointMap(points) }
             item { Text("نقاط برداشت (${points.size})", style = MaterialTheme.typography.titleMedium) }
@@ -118,6 +126,7 @@ private enum class Screen { Projects, Survey }
     editPoint?.let { current -> PointDialog(current, points.size + 1, { editPoint = null }) { p -> store.updatePoint(project.id,p); points = store.getPoints(project.id); editPoint = null } }
     if (importDialog) CsvImportDialog(onDismiss = { importDialog = false }) { csv -> store.appendPoints(project.id, CsvCodec.parse(csv)); points = store.getPoints(project.id); importDialog = false }
     if (exportDialog) CsvExportDialog(CsvCodec.export(points)) { exportDialog = false }
+    if (nmeaDialog) NmeaDialog(onDismiss = { nmeaDialog = false }) { raw -> gnssFix = NmeaParser.parse(raw); nmeaDialog = false }
 }
 
 @Composable private fun PointRow(p: SurveyPoint, onEdit: () -> Unit, onDelete: () -> Unit) {
@@ -165,3 +174,27 @@ private enum class Screen { Projects, Survey }
 
 @Composable private fun CsvImportDialog(onDismiss:()->Unit,onImport:(String)->Unit){ var csv by remember{mutableStateOf("name,x,y,z\n")}; AlertDialog(onDismissRequest=onDismiss,title={Text("Import CSV")},text={OutlinedTextField(csv,{csv=it},modifier=Modifier.fillMaxWidth().height(220.dp),label={Text("CSV")})},confirmButton={TextButton(onClick={onImport(csv)}){Text("ورود")}},dismissButton={TextButton(onClick=onDismiss){Text("انصراف")}}) }
 @Composable private fun CsvExportDialog(csv:String,onDismiss:()->Unit){ AlertDialog(onDismissRequest=onDismiss,title={Text("Export CSV")},text={OutlinedTextField(csv,{},readOnly=true,modifier=Modifier.fillMaxWidth().height(220.dp))},confirmButton={TextButton(onClick=onDismiss){Text("بستن")}}) }
+
+@Composable private fun GnssStatusCard(fix: GnssFix?) {
+    ElevatedCard(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp)) {
+        Text("GNSS / RTK", style = MaterialTheme.typography.titleMedium)
+        if (fix == null) Text("گیرنده متصل نیست — NMEA را برای تست وارد کنید") else {
+            Text("وضعیت: ${fix.fixType.label}")
+            Text("Sat: ${fix.satellites} | HDOP: ${fix.hdop ?: "-"}")
+            Text("Lat: ${"%.7f".format(fix.latitude)}")
+            Text("Lon: ${"%.7f".format(fix.longitude)}")
+            Text("Alt: ${fix.altitude?.let { "%.3f m".format(it) } ?: "-"}")
+        }
+    } }
+}
+
+@Composable private fun NmeaDialog(onDismiss: () -> Unit, onParse: (String) -> Unit) {
+    var raw by remember { mutableStateOf("$GPGGA,123519,4807.038,N,01131.000,E,4,12,0.7,545.4,M,46.9,M,,") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("تست GNSS / NMEA GGA") },
+        text = { OutlinedTextField(raw, { raw = it }, modifier = Modifier.fillMaxWidth().height(180.dp), label = { Text("NMEA sentence") }) },
+        confirmButton = { TextButton(onClick = { onParse(raw) }) { Text("Parse") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("انصراف") } }
+    )
+}
