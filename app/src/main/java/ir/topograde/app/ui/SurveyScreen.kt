@@ -37,6 +37,11 @@ import ir.topograde.app.grading.HeatmapEngine
 import ir.topograde.app.guidance.BladeGeometryEngine
 import ir.topograde.app.guidance.CrossSlopeGuidance
 import ir.topograde.app.guidance.MachineGeometry
+import ir.topograde.app.guidance.HeadingConfig
+import ir.topograde.app.guidance.HeadingResolver
+import ir.topograde.app.guidance.GuidanceQualityGate
+import ir.topograde.app.guidance.GuidanceQualityLevel
+import ir.topograde.app.guidance.GuidanceAlertEngine
 import ir.topograde.app.guidance.OrientationProvider
 import ir.topograde.app.logging.GuidanceLogEntry
 import ir.topograde.app.geometry.TerrainEngine
@@ -72,6 +77,7 @@ fun SurveyScreen(store: ProjectStore, project: Project, onBack: () -> Unit) {
     val connectionState by controller.state.collectAsState()
     val gnssFix by controller.fix.collectAsState()
     val gnssQuality by controller.quality.collectAsState()
+    val receiverHeadingDeg by controller.receiverHeadingDeg.collectAsState()
     val offlineManager = remember(context) { OfflineMapManager(context.applicationContext) }
     val orientationProvider = remember(context) { OrientationProvider(context.applicationContext) }
     val orientation by orientationProvider.orientation.collectAsState()
@@ -83,6 +89,7 @@ fun SurveyScreen(store: ProjectStore, project: Project, onBack: () -> Unit) {
     var designPlane by remember(project.id) { mutableStateOf(store.getDesignPlane(project.id)) }
     var gradingPreset by remember(project.id) { mutableStateOf(store.getGradingPreset(project.id)) }
     var machineGeometry by remember(project.id) { mutableStateOf(store.getMachineGeometry(project.id)) }
+    var headingConfig by remember(project.id) { mutableStateOf(store.getHeadingConfig(project.id)) }
     var guidanceLogs by remember(project.id) { mutableStateOf(store.getGuidanceLogs(project.id)) }
     var tracking by remember { mutableStateOf(false) }
     var lastTrackAt by remember { mutableLongStateOf(0L) }
@@ -103,6 +110,7 @@ fun SurveyScreen(store: ProjectStore, project: Project, onBack: () -> Unit) {
     var fullGuidance by remember { mutableStateOf(false) }
     var machineGeometryDialog by remember { mutableStateOf(false) }
     var replayDialog by remember { mutableStateOf(false) }
+    var headingConfigDialog by remember { mutableStateOf(false) }
     var guidanceRecording by remember { mutableStateOf(false) }
     var lastGuidanceLogAt by remember { mutableLongStateOf(0L) }
     var ntripStatus by remember { mutableStateOf("خاموش") }
@@ -170,6 +178,8 @@ fun SurveyScreen(store: ProjectStore, project: Project, onBack: () -> Unit) {
         }
     }
 
+    val resolvedOrientation = remember(orientation, receiverHeadingDeg, headingConfig) { HeadingResolver.resolve(orientation, receiverHeadingDeg, headingConfig) }
+    val qualityStatus = remember(gnssFix, gnssQuality) { GuidanceQualityGate.evaluate(gnssFix, gnssQuality) }
     val mapTrack = remember(track, localCalibration, project) { track.mapNotNull { pointToMap(it) } }
     val mapBoundary = remember(boundary, localCalibration, project) { boundary.mapNotNull { pointToMap(it) } }
     val currentProjectPoint = gnssFix?.let { fixToPoint(it, "LIVE") }
@@ -209,13 +219,14 @@ fun SurveyScreen(store: ProjectStore, project: Project, onBack: () -> Unit) {
         val antenna = currentAntennaPoint
         val preset = gradingPreset
         if (guidanceRecording && antenna != null && preset != null && System.currentTimeMillis() - lastGuidanceLogAt >= 1000L) {
-            val blade = BladeGeometryEngine.compute(antenna.x, antenna.y, antenna.z, orientation, machineGeometry)
+            if (qualityStatus.level == GuidanceQualityLevel.BLOCKED) return@LaunchedEffect
+            val blade = BladeGeometryEngine.compute(antenna.x, antenna.y, antenna.z, resolvedOrientation, machineGeometry)
             val surface = preset.toSurface()
             val guidance = ir.topograde.app.grading.GuidanceEngine.evaluate(blade.centerX, blade.centerY, blade.centerZ, surface, 0.03)
-            val cross = CrossSlopeGuidance.evaluate(blade, orientation, machineGeometry, surface)
+            val cross = CrossSlopeGuidance.evaluate(blade, resolvedOrientation, machineGeometry, surface)
             val entry = GuidanceLogEntry(
                 System.currentTimeMillis(), antenna.x, antenna.y, antenna.z,
-                orientation.headingDeg, orientation.rollDeg, orientation.pitchDeg,
+                resolvedOrientation.headingDeg, resolvedOrientation.rollDeg, resolvedOrientation.pitchDeg,
                 blade.centerZ, guidance.targetZ, guidance.delta,
                 cross.actualPercent, cross.targetPercent
             )
@@ -422,15 +433,19 @@ fun SurveyScreen(store: ProjectStore, project: Project, onBack: () -> Unit) {
     gradingExportCsv?.let { csv -> GradingExportDialog(csv) { gradingExportCsv = null } }
     if (fullGuidance) FullScreenGuidance(
         antennaPoint = currentAntennaPoint,
-        orientation = orientation,
+        orientation = resolvedOrientation,
         geometry = machineGeometry,
         preset = gradingPreset,
+        qualityStatus = qualityStatus,
+        alerts = GuidanceAlertEngine.evaluate(null, null, qualityStatus),
         recording = guidanceRecording,
         logCount = guidanceLogs.size,
         imuAvailable = orientationProvider.available(),
+        headingSourceLabel = headingConfig.source.name + (if (headingConfig.source.name == "DUAL_GNSS" && receiverHeadingDeg == null) " (no HDT)" else ""),
         onClose = { fullGuidance = false },
         onToggleRecording = { guidanceRecording = !guidanceRecording },
         onOpenGeometry = { machineGeometryDialog = true },
+        onOpenHeading = { headingConfigDialog = true },
         onReplay = { replayDialog = true }
     )
     if (machineGeometryDialog) MachineGeometryDialog(machineGeometry, { machineGeometryDialog = false }) { g ->
@@ -439,7 +454,16 @@ fun SurveyScreen(store: ProjectStore, project: Project, onBack: () -> Unit) {
         machineGeometryDialog = false
         fieldMessage = "Machine Geometry ذخیره شد"
     }
-    if (replayDialog) GuidanceReplayDialog(guidanceLogs) { replayDialog = false }
+    if (headingConfigDialog) HeadingConfigDialog(headingConfig, orientation, { headingConfigDialog = false }) { cfg ->
+        store.saveHeadingConfig(project.id, cfg)
+        headingConfig = cfg
+        headingConfigDialog = false
+        fieldMessage = "Heading/IMU تنظیم شد"
+    }
+    if (replayDialog) {
+        val replayMap = guidanceLogs.mapNotNull { e -> pointToMap(SurveyPoint(e.timestamp, "LOG", e.x, e.y, e.antennaZ)) }
+        GuidanceMapReplayDialog(guidanceLogs.take(replayMap.size), replayMap) { replayDialog = false }
+    }
     if (calibrationDialog) {
         LocalCalibrationDialog(
             onDismiss = { calibrationDialog = false },

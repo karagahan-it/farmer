@@ -7,6 +7,8 @@ import ir.topograde.app.grading.DesignPlane
 import ir.topograde.app.grading.GradingMode
 import ir.topograde.app.grading.GradingPreset
 import ir.topograde.app.guidance.MachineGeometry
+import ir.topograde.app.guidance.HeadingConfig
+import ir.topograde.app.guidance.HeadingSource
 import ir.topograde.app.logging.GuidanceLogEntry
 import ir.topograde.app.model.CoordinateSystem
 import ir.topograde.app.model.Project
@@ -118,6 +120,28 @@ class ProjectStore(context: Context) {
             val o=JSONObject(raw)
             MachineGeometry(o.optDouble("forward",2.5),o.optDouble("right",0.0),o.optDouble("down",2.0),o.optDouble("bladeWidth",3.7))
         }.getOrDefault(MachineGeometry())
+    }
+    fun saveHeadingConfig(projectId:Long, config:HeadingConfig) {
+        val o=JSONObject()
+            .put("source",config.source.name)
+            .put("manualHeadingDeg",config.manualHeadingDeg)
+            .put("headingOffsetDeg",config.headingOffsetDeg)
+            .put("rollZeroDeg",config.rollZeroDeg)
+            .put("pitchZeroDeg",config.pitchZeroDeg)
+        prefs.edit().putString("heading_$projectId",o.toString()).apply()
+    }
+    fun getHeadingConfig(projectId:Long):HeadingConfig {
+        val raw=prefs.getString("heading_$projectId",null) ?: return HeadingConfig()
+        return runCatching {
+            val o=JSONObject(raw)
+            HeadingConfig(
+                source=runCatching{HeadingSource.valueOf(o.optString("source","TABLET_IMU"))}.getOrDefault(HeadingSource.TABLET_IMU),
+                manualHeadingDeg=o.optDouble("manualHeadingDeg",0.0),
+                headingOffsetDeg=o.optDouble("headingOffsetDeg",0.0),
+                rollZeroDeg=o.optDouble("rollZeroDeg",0.0),
+                pitchZeroDeg=o.optDouble("pitchZeroDeg",0.0)
+            )
+        }.getOrDefault(HeadingConfig())
     }
     fun getGuidanceLogs(projectId:Long):List<GuidanceLogEntry> {
         val arr=JSONArray(prefs.getString("guidance_log_$projectId","[]")?:"[]")

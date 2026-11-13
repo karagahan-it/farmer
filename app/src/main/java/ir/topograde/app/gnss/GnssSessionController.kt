@@ -20,6 +20,8 @@ class GnssSessionController(private val scope: CoroutineScope) {
     val fix: StateFlow<GnssFix?> = _fix.asStateFlow()
     private val _quality = MutableStateFlow(GnssQuality())
     val quality: StateFlow<GnssQuality> = _quality.asStateFlow()
+    private val _receiverHeadingDeg = MutableStateFlow<Double?>(null)
+    val receiverHeadingDeg: StateFlow<Double?> = _receiverHeadingDeg.asStateFlow()
     private val _samples = MutableSharedFlow<GnssFix>(extraBufferCapacity = 64)
     val samples: SharedFlow<GnssFix> = _samples.asSharedFlow()
     private var sessionJob: Job? = null
@@ -50,9 +52,8 @@ class GnssSessionController(private val scope: CoroutineScope) {
                                     _fix.value = parsed
                                     _samples.tryEmit(parsed)
                                 }
-                                NmeaQualityParser.parse(line)?.let { q ->
-                                    _quality.value = _quality.value.merge(q)
-                                }
+                                NmeaQualityParser.parse(line)?.let { q -> _quality.value = _quality.value.merge(q) }
+                                NmeaHeadingParser.parse(line)?.let { h -> _receiverHeadingDeg.value = h }
                             }
                         }.onFailure { _state.value = GnssConnectionState.Error(it.message ?: "GNSS stream error") }
                     }

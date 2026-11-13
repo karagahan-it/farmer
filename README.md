@@ -2,35 +2,34 @@
 
 Tablet-first Android app for professional RTK surveying, terrain modeling and grader guidance workflows.
 
-## Current development — v0.11
-- Full-screen landscape Operator Guidance mode
-- Tablet Rotation Vector IMU integration
-- Live Heading / Roll / Pitch
+## Current development — v0.12
+- Full-screen landscape Operator Guidance
+- Tablet IMU Heading / Roll / Pitch
+- Heading source selection: Tablet IMU / receiver HDT (dual-GNSS) / Manual
+- NMEA HDT parser for dual-antenna receiver heading
+- Heading offset and Roll/Pitch zero calibration
 - Configurable antenna-to-blade geometry
 - Blade center / left / right elevation model
-- Actual blade cross-slope
-- Target cross-slope from grading surface
-- Left/right blade delta vs design
-- CUT / ON GRADE / FILL live guidance
-- Existing blade Z / Target Z / ΔZ / tolerance
-- Persistent per-project Machine Geometry
-- Guidance session logging at 1 Hz
-- Persistent Guidance logs (up to 10,000 frames per project)
-- Replay slider for recorded guidance frames
-- Guidance CSV log codec
-- Existing RTK, NTRIP/RTCM, Offline Maps, Cut/Fill, profiles and boundary volumes remain active
+- Actual vs target cross-slope
+- Guidance Quality Gate using RTK FIX, satellites, correction age, GST sigma and PDOP
+- Guidance states: GOOD / CAUTION / BLOCKED
+- Haptic warning on degraded/blocked guidance
+- Persistent Heading/IMU configuration per project
+- Guidance logging at 1 Hz
+- Replay path on MapLibre with timeline slider
+- Existing RTK, NTRIP/RTCM, Cut/Fill, profiles, boundary volume and offline maps remain active
 
 ## Safety boundary
-This release is guidance-only. It does not command grader hydraulics, valves, CAN actuators or blade movement. Future control work requires an independent safety architecture, interlocks, watchdogs, manual override, fault-state design and controlled field validation.
+This release is guidance-only. If GNSS quality is blocked, numerical guidance is intentionally suppressed. No hydraulic/CAN/valve actuation is implemented. Machine control requires an independent safety architecture, interlocks, watchdogs, manual override and controlled field validation.
 
 ## Next
-1. Heading source selection: IMU vs dual-GNSS heading
-2. IMU calibration / zeroing and mounting orientation
-3. Blade lift/rotation articulation model
-4. Guidance quality gates based on RTK FIX, GST sigma and correction age
-5. Full field replay on MapLibre with timeline
-6. Cross-slope / elevation alarms and configurable tolerance bands
-7. Machine profile presets
-8. Field validation logging and accuracy reports
+1. Separate secondary GNSS transport for true dual-receiver baseline heading
+2. IMU mounting-axis calibration and filtering
+3. Guidance quality thresholds configurable per machine/job
+4. Audible alarm patterns and operator acknowledgement
+5. Replay color-coded by quality and cut/fill state
+6. Blade articulation / circle rotation model
+7. Machine presets and calibration reports
+8. Field validation accuracy dashboard
 
 > Clean-room implementation; no proprietary APK source or assets are copied.
