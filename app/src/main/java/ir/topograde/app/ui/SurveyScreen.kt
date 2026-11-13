@@ -31,6 +31,7 @@ import ir.topograde.app.geo.CoordinateConverter
 import ir.topograde.app.geo.LocalCalibration
 import ir.topograde.app.geo.LocalSiteCalibration
 import ir.topograde.app.geometry.FieldMetrics
+import ir.topograde.app.grading.DesignPlane
 import ir.topograde.app.geometry.TerrainEngine
 import ir.topograde.app.gnss.BluetoothGnssTransport
 import ir.topograde.app.gnss.FixType
@@ -43,6 +44,8 @@ import ir.topograde.app.gnss.TcpGnssTransport
 import ir.topograde.app.map.MapLatLon
 import ir.topograde.app.map.MapLibrePanel
 import ir.topograde.app.map.OfflineMapManager
+import ir.topograde.app.survey.HeightCorrection
+import ir.topograde.app.survey.HeightSettings
 import ir.topograde.app.model.CoordinateSystem
 import ir.topograde.app.model.Project
 import ir.topograde.app.model.SurveyPoint
@@ -66,6 +69,8 @@ fun SurveyScreen(store: ProjectStore, project: Project, onBack: () -> Unit) {
     var track by remember(project.id) { mutableStateOf(store.getTrack(project.id)) }
     var boundary by remember(project.id) { mutableStateOf(store.getBoundary(project.id)) }
     var localCalibration by remember(project.id) { mutableStateOf(store.getLocalCalibration(project.id)) }
+    var heightSettings by remember(project.id) { mutableStateOf(store.getHeightSettings(project.id)) }
+    var designPlane by remember(project.id) { mutableStateOf(store.getDesignPlane(project.id)) }
     var tracking by remember { mutableStateOf(false) }
     var lastTrackAt by remember { mutableLongStateOf(0L) }
     var averaging by remember { mutableStateOf(false) }
@@ -77,6 +82,9 @@ fun SurveyScreen(store: ProjectStore, project: Project, onBack: () -> Unit) {
     var bluetoothDialog by remember { mutableStateOf(false) }
     var ntripDialog by remember { mutableStateOf(false) }
     var calibrationDialog by remember { mutableStateOf(false) }
+    var heightDialog by remember { mutableStateOf(false) }
+    var designDialog by remember { mutableStateOf(false) }
+    var offlinePacksDialog by remember { mutableStateOf(false) }
     var ntripStatus by remember { mutableStateOf("خاموش") }
     var offlineStatus by remember { mutableStateOf("دانلود نشده") }
     var fieldMessage by remember { mutableStateOf<String?>(null) }
@@ -85,7 +93,8 @@ fun SurveyScreen(store: ProjectStore, project: Project, onBack: () -> Unit) {
     val snackbar = remember { SnackbarHostState() }
 
     fun fixToPoint(fix: GnssFix, name: String): SurveyPoint? {
-        val z = fix.altitude ?: return null
+        val rawZ = fix.altitude ?: return null
+        val z = HeightCorrection.groundOrthometricHeight(rawZ, heightSettings)
         return when (project.coordinateSystem) {
             CoordinateSystem.WGS84 -> SurveyPoint(System.currentTimeMillis(), name, fix.longitude, fix.latitude, z)
             CoordinateSystem.UTM -> {
@@ -233,6 +242,9 @@ fun SurveyScreen(store: ProjectStore, project: Project, onBack: () -> Unit) {
                     AssistChip(onClick = { tracking = !tracking }, label = { Text(if (tracking) "Stop Track" else "Start Track") })
                     AssistChip(onClick = { addBoundaryVertex() }, label = { Text("+ Boundary") })
                     AssistChip(onClick = { downloadOfflineMap() }, label = { Text("Offline Map 2km") })
+                    AssistChip(onClick = { offlinePacksDialog = true }, label = { Text("Map Packs") })
+                    AssistChip(onClick = { heightDialog = true }, label = { Text("Antenna / Geoid") })
+                    AssistChip(onClick = { designDialog = true }, label = { Text("Design Plane") })
                     if (project.coordinateSystem == CoordinateSystem.LOCAL) AssistChip(onClick = { calibrationDialog = true }, label = { Text("Local Calibration") })
                     AssistChip(onClick = { importDialog = true }, label = { Text("Import CSV") })
                     AssistChip(onClick = { exportDialog = true }, label = { Text("Export CSV") })
@@ -267,6 +279,7 @@ fun SurveyScreen(store: ProjectStore, project: Project, onBack: () -> Unit) {
                     onClearBoundary = { store.clearBoundary(project.id); boundary = emptyList() }
                 )
             }
+            item { CutFillCard(points, designPlane) }
             item { Text("نقاط برداشت (" + points.size + ")", style = MaterialTheme.typography.titleLarge) }
             items(points, key = { it.id }) { p ->
                 PointRow(
@@ -322,6 +335,9 @@ fun SurveyScreen(store: ProjectStore, project: Project, onBack: () -> Unit) {
                 .onFailure { ntripStatus = "خطا: " + (it.message ?: "NTRIP") }
         }
     }
+    if (heightDialog) HeightSettingsDialog(heightSettings, { heightDialog = false }) { settings -> store.saveHeightSettings(project.id, settings); heightSettings = settings; heightDialog = false; fieldMessage = "تنظیم ارتفاع ذخیره شد" }
+    if (designDialog) DesignPlaneDialog(designPlane, { designDialog = false }) { plane -> store.saveDesignPlane(project.id, plane); designPlane = plane; designDialog = false; fieldMessage = "Design Plane ذخیره شد" }
+    if (offlinePacksDialog) OfflinePackManagerDialog(offlineManager) { offlinePacksDialog = false }
     if (calibrationDialog) {
         LocalCalibrationDialog(
             onDismiss = { calibrationDialog = false },

@@ -1,6 +1,7 @@
 package ir.topograde.app.map
 
 import android.content.Context
+import org.json.JSONObject
 import org.maplibre.android.geometry.LatLngBounds
 import org.maplibre.android.offline.OfflineManager
 import org.maplibre.android.offline.OfflineRegion
@@ -21,6 +22,8 @@ data class OfflineProgress(
 class OfflineMapManager(private val context: Context) {
     companion object { const val STYLE_URL = "https://demotiles.maplibre.org/style.json" }
 
+    private val manager get() = OfflineManager.getInstance(context)
+
     fun downloadAround(
         name: String,
         latitude: Double,
@@ -36,8 +39,8 @@ class OfflineMapManager(private val context: Context) {
         val bounds = LatLngBounds.from(latitude + latDelta, longitude + lonDelta, latitude - latDelta, longitude - lonDelta)
         val density = context.resources.displayMetrics.density
         val definition = OfflineTilePyramidRegionDefinition(STYLE_URL, bounds, minZoom, maxZoom, density)
-        val metadata = ("{\"name\":\"" + name.replace("\"","") + "\"}").toByteArray()
-        OfflineManager.getInstance(context).createOfflineRegion(definition, metadata, object : OfflineManager.CreateOfflineRegionCallback {
+        val metadata = JSONObject().put("name", name).toString().toByteArray()
+        manager.createOfflineRegion(definition, metadata, object : OfflineManager.CreateOfflineRegionCallback {
             override fun onCreate(offlineRegion: OfflineRegion) {
                 offlineRegion.setObserver(object : OfflineRegion.OfflineRegionObserver {
                     override fun onStatusChanged(status: OfflineRegionStatus) {
@@ -52,4 +55,67 @@ class OfflineMapManager(private val context: Context) {
             override fun onError(error: String) { onError(error) }
         })
     }
+
+    fun listPacks(onResult:(List<OfflinePack>)->Unit,onError:(String)->Unit) {
+        manager.listOfflineRegions(object : OfflineManager.ListOfflineRegionsCallback {
+            override fun onList(offlineRegions: Array<OfflineRegion>?) {
+                val regions = offlineRegions.orEmpty()
+                if (regions.isEmpty()) { onResult(emptyList()); return }
+                val result = MutableList<OfflinePack?>(regions.size) { null }
+                var remaining = regions.size
+                regions.forEachIndexed { index, region ->
+                    region.getStatus(object : OfflineRegion.OfflineRegionStatusCallback {
+                        override fun onStatus(status: OfflineRegionStatus?) {
+                            if (status == null) { result[index] = OfflinePack(region.id, readName(region), false, false, 0, 0, 0); remaining--; if (remaining == 0) onResult(result.filterNotNull().sortedBy { it.name }); return }
+                            result[index] = OfflinePack(
+                                id = region.id,
+                                name = readName(region),
+                                active = status.downloadState == OfflineRegion.STATE_ACTIVE,
+                                complete = status.isComplete,
+                                completedResources = status.completedResourceCount,
+                                requiredResources = status.requiredResourceCount,
+                                completedBytes = status.completedResourceSize
+                            )
+                            remaining--
+                            if (remaining == 0) onResult(result.filterNotNull().sortedBy { it.name })
+                        }
+                        override fun onError(error: String?) {
+                            result[index] = OfflinePack(region.id, readName(region), false, false, 0, 0, 0)
+                            remaining--
+                            if (remaining == 0) onResult(result.filterNotNull().sortedBy { it.name })
+                        }
+                    })
+                }
+            }
+            override fun onError(error: String) { onError(error) }
+        })
+    }
+
+    fun setPackActive(id:Long,active:Boolean,onDone:()->Unit,onError:(String)->Unit) {
+        manager.getOfflineRegion(id, object : OfflineManager.GetOfflineRegionCallback {
+            override fun onRegion(offlineRegion: OfflineRegion) {
+                offlineRegion.setDownloadState(if(active) OfflineRegion.STATE_ACTIVE else OfflineRegion.STATE_INACTIVE)
+                onDone()
+            }
+            override fun onRegionNotFound() { onError("Offline pack not found") }
+            override fun onError(error: String) { onError(error) }
+        })
+    }
+
+    fun deletePack(id:Long,onDone:()->Unit,onError:(String)->Unit) {
+        manager.getOfflineRegion(id, object : OfflineManager.GetOfflineRegionCallback {
+            override fun onRegion(offlineRegion: OfflineRegion) {
+                offlineRegion.delete(object : OfflineRegion.OfflineRegionDeleteCallback {
+                    override fun onDelete() { onDone() }
+                    override fun onError(error: String) { onError(error) }
+                })
+            }
+            override fun onRegionNotFound() { onError("Offline pack not found") }
+            override fun onError(error: String) { onError(error) }
+        })
+    }
+
+    private fun readName(region:OfflineRegion):String = runCatching {
+        JSONObject(region.metadata.toString(Charsets.UTF_8)).optString("name","Pack "+region.id)
+    }.getOrDefault("Pack "+region.id)
 }

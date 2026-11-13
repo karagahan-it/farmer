@@ -1,36 +1,31 @@
 # TopoGrade / Farmer
 
-Tablet-first Android app for topographic surveying, terrain modeling and RTK field workflows.
+Tablet-first Android app for professional RTK surveying, terrain modeling and grading workflows.
 
-## Current development — v0.7
-- Tablet-first two-pane field workspace
-- Offline projects / XYZ points / CSV
-- LOCAL / WGS84 / UTM coordinate systems
-- Delaunay TIN foundation
-- MapLibre live map
-- Track and Boundary rendered on MapLibre as GeoJSON layers
-- Real MapLibre OfflineRegion download around current GNSS position
-- TCP + Bluetooth GNSS
-- NMEA GGA + GSA + GST parsing
-- GPS / DGPS / RTK FIX / RTK FLOAT
-- DOP and GST sigma quality display
-- NTRIP / RTCM forwarding
-- GNSS watchdog + auto reconnect
-- One-tap RTK capture + 5-second averaging
-- Correction age / base station ID
-- Persistent Track + Boundary
+## Current development — v0.8
+- Tablet-first field workspace
+- TCP + Bluetooth GNSS, NMEA, NTRIP/RTCM
+- RTK FIX capture + 5s averaging
+- GGA/GSA/GST quality metrics
+- Track / Boundary persistence and MapLibre overlays
+- Offline map download + Offline Pack manager (list / pause / resume / delete)
+- WGS84 ↔ UTM
+- Two-point local calibration + multi-point least-squares similarity engine
+- Antenna / pole height correction
+- GGA orthometric vs ellipsoidal height mode
+- Manual geoid undulation support for ellipsoidal input
+- Persistent project height settings
+- Design Plane persistence
+- Initial Cut/Fill engine and summary
 - Track length + Boundary area
-- WGS84 ↔ UTM conversion
-- Two-control-point Local Site calibration with persistent 2D similarity transform
-- Local ↔ UTM ↔ WGS84 map projection path
 - Unit tests + Android CI
 
 ## Next
-1. Offline map pack manager: list / pause / resume / delete packs
-2. Polygon fill and point symbols on MapLibre
-3. Multi-control least-squares local calibration and residual report
-4. Antenna height / pole height corrections
-5. Geoid / orthometric height workflow
-6. Cut/fill surface, volume and grading design
+1. Multi-control calibration UI with residual table and reject/outlier controls
+2. Geoid grid model support (EGM) instead of manual N value
+3. Antenna-height presets and instrument profiles
+4. Cut/Fill heatmap on MapLibre and volume integration over TIN
+5. Grading design tools: single slope / dual slope / target elevation
+6. Export reports: CSV / DXF / LandXML / PDF
 
 > Clean-room implementation; no proprietary APK source or assets are copied.
