@@ -4,6 +4,8 @@ import android.content.Context
 import ir.topograde.app.geo.LocalSiteCalibration
 import ir.topograde.app.geo.Similarity2D
 import ir.topograde.app.grading.DesignPlane
+import ir.topograde.app.grading.GradingMode
+import ir.topograde.app.grading.GradingPreset
 import ir.topograde.app.model.CoordinateSystem
 import ir.topograde.app.model.Project
 import ir.topograde.app.model.SurveyPoint
@@ -74,6 +76,32 @@ class ProjectStore(context: Context) {
         return runCatching { val o=JSONObject(raw); DesignPlane(o.getDouble("originX"),o.getDouble("originY"),o.getDouble("originZ"),o.optDouble("slopeXPercent",0.0),o.optDouble("slopeYPercent",0.0)) }.getOrNull()
     }
 
+    fun saveGradingPreset(projectId:Long, preset:GradingPreset) {
+        val o=JSONObject()
+            .put("mode",preset.mode.name)
+            .put("originX",preset.originX)
+            .put("originY",preset.originY)
+            .put("originZ",preset.originZ)
+            .put("slopeXPercent",preset.slopeXPercent)
+            .put("slopeYPercent",preset.slopeYPercent)
+            .put("azimuthDeg",preset.azimuthDeg)
+        prefs.edit().putString("grading_preset_$projectId",o.toString()).apply()
+    }
+    fun getGradingPreset(projectId:Long):GradingPreset? {
+        val raw=prefs.getString("grading_preset_$projectId",null) ?: return null
+        return runCatching {
+            val o=JSONObject(raw)
+            GradingPreset(
+                mode=runCatching{GradingMode.valueOf(o.getString("mode"))}.getOrDefault(GradingMode.TARGET_ELEVATION),
+                originX=o.getDouble("originX"),
+                originY=o.getDouble("originY"),
+                originZ=o.getDouble("originZ"),
+                slopeXPercent=o.optDouble("slopeXPercent",0.0),
+                slopeYPercent=o.optDouble("slopeYPercent",0.0),
+                azimuthDeg=o.optDouble("azimuthDeg",0.0)
+            )
+        }.getOrNull()
+    }
     fun saveLocalCalibration(projectId: Long, calibration: LocalSiteCalibration) {
         val t = calibration.transform
         val o = JSONObject().put("utmZone", calibration.utmZone).put("north", calibration.northernHemisphere).put("scale", t.scale).put("rotationRad", t.rotationRad).put("tx", t.tx).put("ty", t.ty)

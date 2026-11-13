@@ -2,30 +2,33 @@
 
 Tablet-first Android app for professional RTK surveying, terrain modeling and grading workflows.
 
-## Current development — v0.8
-- Tablet-first field workspace
+## Current development — v0.9
+- Tablet-first RTK field workspace
 - TCP + Bluetooth GNSS, NMEA, NTRIP/RTCM
-- RTK FIX capture + 5s averaging
+- RTK FIX capture + 5-second averaging
 - GGA/GSA/GST quality metrics
-- Track / Boundary persistence and MapLibre overlays
-- Offline map download + Offline Pack manager (list / pause / resume / delete)
-- WGS84 ↔ UTM
-- Two-point local calibration + multi-point least-squares similarity engine
-- Antenna / pole height correction
-- GGA orthometric vs ellipsoidal height mode
-- Manual geoid undulation support for ellipsoidal input
-- Persistent project height settings
-- Design Plane persistence
-- Initial Cut/Fill engine and summary
-- Track length + Boundary area
+- Track / Boundary persistence + MapLibre overlays
+- Offline Map Packs: download/list/pause/resume/delete
+- WGS84 ↔ UTM + Local calibration
+- Antenna/pole height and geoid settings
+- Multi-point least-squares calibration engine
+- Grading modes: Target Elevation / Single Slope / Dual Slope
+- Azimuth-aware dual-slope surface
+- Cut/Fill classification heatmap
+- Exact mixed-triangle Cut/Fill volume splitting across zero surface
+- Cut volume / Fill volume / Net volume
+- Persistent professional Grading Preset
+- Engineering Cut/Fill CSV export
+- Initial DXF point export engine
 - Unit tests + Android CI
 
 ## Next
-1. Multi-control calibration UI with residual table and reject/outlier controls
-2. Geoid grid model support (EGM) instead of manual N value
-3. Antenna-height presets and instrument profiles
-4. Cut/Fill heatmap on MapLibre and volume integration over TIN
-5. Grading design tools: single slope / dual slope / target elevation
-6. Export reports: CSV / DXF / LandXML / PDF
+1. Render Cut/Fill heatmap directly on MapLibre
+2. TIN-based colored triangle surface instead of point-only heatmap
+3. Boundary-clipped earthwork volume
+4. LandXML / DXF surface export
+5. Cross-section and profile tools
+6. Grader guidance screen: target vs blade elevation, cross-slope and tolerance bands
+7. Field-safe guidance validation before any machine actuation
 
 > Clean-room implementation; no proprietary APK source or assets are copied.

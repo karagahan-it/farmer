@@ -32,6 +32,7 @@ import ir.topograde.app.geo.LocalCalibration
 import ir.topograde.app.geo.LocalSiteCalibration
 import ir.topograde.app.geometry.FieldMetrics
 import ir.topograde.app.grading.DesignPlane
+import ir.topograde.app.grading.GradingPreset
 import ir.topograde.app.geometry.TerrainEngine
 import ir.topograde.app.gnss.BluetoothGnssTransport
 import ir.topograde.app.gnss.FixType
@@ -71,6 +72,7 @@ fun SurveyScreen(store: ProjectStore, project: Project, onBack: () -> Unit) {
     var localCalibration by remember(project.id) { mutableStateOf(store.getLocalCalibration(project.id)) }
     var heightSettings by remember(project.id) { mutableStateOf(store.getHeightSettings(project.id)) }
     var designPlane by remember(project.id) { mutableStateOf(store.getDesignPlane(project.id)) }
+    var gradingPreset by remember(project.id) { mutableStateOf(store.getGradingPreset(project.id)) }
     var tracking by remember { mutableStateOf(false) }
     var lastTrackAt by remember { mutableLongStateOf(0L) }
     var averaging by remember { mutableStateOf(false) }
@@ -85,6 +87,8 @@ fun SurveyScreen(store: ProjectStore, project: Project, onBack: () -> Unit) {
     var heightDialog by remember { mutableStateOf(false) }
     var designDialog by remember { mutableStateOf(false) }
     var offlinePacksDialog by remember { mutableStateOf(false) }
+    var gradingPresetDialog by remember { mutableStateOf(false) }
+    var gradingExportCsv by remember { mutableStateOf<String?>(null) }
     var ntripStatus by remember { mutableStateOf("خاموش") }
     var offlineStatus by remember { mutableStateOf("دانلود نشده") }
     var fieldMessage by remember { mutableStateOf<String?>(null) }
@@ -245,6 +249,7 @@ fun SurveyScreen(store: ProjectStore, project: Project, onBack: () -> Unit) {
                     AssistChip(onClick = { offlinePacksDialog = true }, label = { Text("Map Packs") })
                     AssistChip(onClick = { heightDialog = true }, label = { Text("Antenna / Geoid") })
                     AssistChip(onClick = { designDialog = true }, label = { Text("Design Plane") })
+                    AssistChip(onClick = { gradingPresetDialog = true }, label = { Text("Grading Surface") })
                     if (project.coordinateSystem == CoordinateSystem.LOCAL) AssistChip(onClick = { calibrationDialog = true }, label = { Text("Local Calibration") })
                     AssistChip(onClick = { importDialog = true }, label = { Text("Import CSV") })
                     AssistChip(onClick = { exportDialog = true }, label = { Text("Export CSV") })
@@ -280,6 +285,7 @@ fun SurveyScreen(store: ProjectStore, project: Project, onBack: () -> Unit) {
                 )
             }
             item { CutFillCard(points, designPlane) }
+            item { GradingAnalysisCard(points, gradingPreset) { csv -> gradingExportCsv = csv } }
             item { Text("نقاط برداشت (" + points.size + ")", style = MaterialTheme.typography.titleLarge) }
             items(points, key = { it.id }) { p ->
                 PointRow(
@@ -338,6 +344,8 @@ fun SurveyScreen(store: ProjectStore, project: Project, onBack: () -> Unit) {
     if (heightDialog) HeightSettingsDialog(heightSettings, { heightDialog = false }) { settings -> store.saveHeightSettings(project.id, settings); heightSettings = settings; heightDialog = false; fieldMessage = "تنظیم ارتفاع ذخیره شد" }
     if (designDialog) DesignPlaneDialog(designPlane, { designDialog = false }) { plane -> store.saveDesignPlane(project.id, plane); designPlane = plane; designDialog = false; fieldMessage = "Design Plane ذخیره شد" }
     if (offlinePacksDialog) OfflinePackManagerDialog(offlineManager) { offlinePacksDialog = false }
+    if (gradingPresetDialog) GradingPresetDialog(gradingPreset, { gradingPresetDialog = false }) { preset -> store.saveGradingPreset(project.id, preset); gradingPreset = preset; gradingPresetDialog = false; fieldMessage = "Grading Surface ذخیره شد" }
+    gradingExportCsv?.let { csv -> GradingExportDialog(csv) { gradingExportCsv = null } }
     if (calibrationDialog) {
         LocalCalibrationDialog(
             onDismiss = { calibrationDialog = false },
