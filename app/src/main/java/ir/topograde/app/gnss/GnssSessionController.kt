@@ -18,6 +18,8 @@ class GnssSessionController(private val scope: CoroutineScope) {
     val state: StateFlow<GnssConnectionState> = _state.asStateFlow()
     private val _fix = MutableStateFlow<GnssFix?>(null)
     val fix: StateFlow<GnssFix?> = _fix.asStateFlow()
+    private val _quality = MutableStateFlow(GnssQuality())
+    val quality: StateFlow<GnssQuality> = _quality.asStateFlow()
     private val _samples = MutableSharedFlow<GnssFix>(extraBufferCapacity = 64)
     val samples: SharedFlow<GnssFix> = _samples.asSharedFlow()
     private var sessionJob: Job? = null
@@ -47,6 +49,9 @@ class GnssSessionController(private val scope: CoroutineScope) {
                                 NmeaParser.parse(line)?.let { parsed ->
                                     _fix.value = parsed
                                     _samples.tryEmit(parsed)
+                                }
+                                NmeaQualityParser.parse(line)?.let { q ->
+                                    _quality.value = _quality.value.merge(q)
                                 }
                             }
                         }.onFailure { _state.value = GnssConnectionState.Error(it.message ?: "GNSS stream error") }
@@ -79,4 +84,11 @@ class GnssSessionController(private val scope: CoroutineScope) {
         if (transport != null) scope.launch { runCatching { transport.disconnect() } }
         _state.value = GnssConnectionState.Disconnected
     }
+
+    private fun GnssQuality.merge(other: GnssQuality) = GnssQuality(
+        pdop = other.pdop ?: pdop, hdop = other.hdop ?: hdop, vdop = other.vdop ?: vdop,
+        horizontalSigmaMeters = other.horizontalSigmaMeters ?: horizontalSigmaMeters,
+        verticalSigmaMeters = other.verticalSigmaMeters ?: verticalSigmaMeters,
+        rmsMeters = other.rmsMeters ?: rmsMeters
+    )
 }

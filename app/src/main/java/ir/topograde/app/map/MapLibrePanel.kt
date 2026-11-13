@@ -1,5 +1,6 @@
 package ir.topograde.app.map
 
+import android.graphics.Color
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
@@ -17,9 +18,14 @@ import org.maplibre.android.MapLibre
 import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.maps.MapView
+import org.maplibre.android.style.layers.LineLayer
+import org.maplibre.android.style.layers.PropertyFactory
+import org.maplibre.android.style.sources.GeoJsonSource
+
+data class MapLatLon(val latitude: Double, val longitude: Double)
 
 @Composable
-fun MapLibrePanel(latitude: Double? = null, longitude: Double? = null) {
+fun MapLibrePanel(latitude: Double? = null, longitude: Double? = null, track: List<MapLatLon> = emptyList(), boundary: List<MapLatLon> = emptyList()) {
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val mapView = remember {
@@ -27,20 +33,28 @@ fun MapLibrePanel(latitude: Double? = null, longitude: Double? = null) {
         MapView(context).apply {
             onCreate(null)
             getMapAsync { map ->
-                map.setStyle("https://demotiles.maplibre.org/style.json")
+                map.setStyle(OfflineMapManager.STYLE_URL) { style ->
+                    ensureLine(style, "track-source", "track-layer", lineJson(track, false), Color.rgb(126,87,194))
+                    ensureLine(style, "boundary-source", "boundary-layer", lineJson(boundary, true), Color.rgb(230,81,0))
+                }
                 map.cameraPosition = CameraPosition.Builder().target(LatLng(32.0, 53.0)).zoom(4.0).build()
             }
         }
     }
 
     LaunchedEffect(latitude, longitude) {
-        if (latitude != null && longitude != null) {
-            mapView.getMapAsync { map ->
-                map.cameraPosition = CameraPosition.Builder().target(LatLng(latitude, longitude)).zoom(16.0).build()
+        if (latitude != null && longitude != null) mapView.getMapAsync { map -> map.cameraPosition = CameraPosition.Builder().target(LatLng(latitude,longitude)).zoom(16.0).build() }
+    }
+    LaunchedEffect(track, boundary) {
+        mapView.getMapAsync { map ->
+            map.getStyle { style ->
+                val ts = style.getSourceAs<GeoJsonSource>("track-source")
+                if (ts == null) ensureLine(style,"track-source","track-layer",lineJson(track,false),Color.rgb(126,87,194)) else ts.setGeoJson(lineJson(track,false))
+                val bs = style.getSourceAs<GeoJsonSource>("boundary-source")
+                if (bs == null) ensureLine(style,"boundary-source","boundary-layer",lineJson(boundary,true),Color.rgb(230,81,0)) else bs.setGeoJson(lineJson(boundary,true))
             }
         }
     }
-
     DisposableEffect(lifecycle, mapView) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
@@ -55,5 +69,16 @@ fun MapLibrePanel(latitude: Double? = null, longitude: Double? = null) {
         lifecycle.addObserver(observer)
         onDispose { lifecycle.removeObserver(observer) }
     }
-    AndroidView(factory = { mapView }, modifier = Modifier.fillMaxWidth().height(360.dp))
+    AndroidView(factory = { mapView }, modifier = Modifier.fillMaxWidth().height(380.dp))
+}
+
+private fun ensureLine(style: org.maplibre.android.maps.Style, sourceId:String, layerId:String, json:String, color:Int) {
+    if (style.getSource(sourceId) == null) style.addSource(GeoJsonSource(sourceId,json))
+    if (style.getLayer(layerId) == null) style.addLayer(LineLayer(layerId,sourceId).withProperties(PropertyFactory.lineColor(color),PropertyFactory.lineWidth(4f)))
+}
+
+private fun lineJson(points:List<MapLatLon>, close:Boolean):String {
+    val list = if (close && points.size > 2) points + points.first() else points
+    val coords = list.joinToString(",") { "[" + it.longitude + "," + it.latitude + "]" }
+    return "{\"type\":\"FeatureCollection\",\"features\":[{\"type\":\"Feature\",\"properties\":{},\"geometry\":{\"type\":\"LineString\",\"coordinates\":[" + coords + "]}}]}"
 }

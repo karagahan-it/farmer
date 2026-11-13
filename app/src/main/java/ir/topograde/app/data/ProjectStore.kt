@@ -1,6 +1,8 @@
 package ir.topograde.app.data
 
 import android.content.Context
+import ir.topograde.app.geo.LocalSiteCalibration
+import ir.topograde.app.geo.Similarity2D
 import ir.topograde.app.model.CoordinateSystem
 import ir.topograde.app.model.Project
 import ir.topograde.app.model.SurveyPoint
@@ -50,6 +52,30 @@ class ProjectStore(context: Context) {
     fun getBoundary(projectId: Long): List<SurveyPoint> = readPointList("boundary_$projectId")
     fun appendBoundaryPoint(projectId: Long, point: SurveyPoint) = savePointList("boundary_$projectId", getBoundary(projectId) + point)
     fun clearBoundary(projectId: Long) = savePointList("boundary_$projectId", emptyList())
+
+    fun saveLocalCalibration(projectId: Long, calibration: LocalSiteCalibration) {
+        val t = calibration.transform
+        val o = JSONObject()
+            .put("utmZone", calibration.utmZone)
+            .put("north", calibration.northernHemisphere)
+            .put("scale", t.scale)
+            .put("rotationRad", t.rotationRad)
+            .put("tx", t.tx)
+            .put("ty", t.ty)
+        prefs.edit().putString("local_cal_$projectId", o.toString()).apply()
+    }
+
+    fun getLocalCalibration(projectId: Long): LocalSiteCalibration? {
+        val raw = prefs.getString("local_cal_$projectId", null) ?: return null
+        return runCatching {
+            val o = JSONObject(raw)
+            LocalSiteCalibration(
+                utmZone = o.getInt("utmZone"),
+                northernHemisphere = o.optBoolean("north", true),
+                transform = Similarity2D(o.getDouble("scale"), o.getDouble("rotationRad"), o.getDouble("tx"), o.getDouble("ty"))
+            )
+        }.getOrNull()
+    }
 
     private fun readPointList(key: String): List<SurveyPoint> {
         val array = JSONArray(prefs.getString(key, "[]") ?: "[]")

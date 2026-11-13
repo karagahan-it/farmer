@@ -2,31 +2,35 @@
 
 Tablet-first Android app for topographic surveying, terrain modeling and RTK field workflows.
 
-## Current development — v0.6
+## Current development — v0.7
 - Tablet-first two-pane field workspace
-- Offline projects and survey points
-- LOCAL / WGS84 / UTM project CRS
+- Offline projects / XYZ points / CSV
+- LOCAL / WGS84 / UTM coordinate systems
 - Delaunay TIN foundation
 - MapLibre live map
+- Track and Boundary rendered on MapLibre as GeoJSON layers
+- Real MapLibre OfflineRegion download around current GNSS position
 - TCP + Bluetooth GNSS
-- NMEA GGA parser with RTK FIX/FLOAT
+- NMEA GGA + GSA + GST parsing
+- GPS / DGPS / RTK FIX / RTK FLOAT
+- DOP and GST sigma quality display
 - NTRIP / RTCM forwarding
 - GNSS watchdog + auto reconnect
-- One-tap RTK FIX capture
-- 5-second RTK averaging with horizontal/vertical spread
-- Correction age + base station ID display
-- Persistent Track recording
-- Persistent Boundary vertices
-- WGS84 → UTM conversion
-- Offline map region model (download pipeline next)
-- Android CI: unit tests + debug APK
+- One-tap RTK capture + 5-second averaging
+- Correction age / base station ID
+- Persistent Track + Boundary
+- Track length + Boundary area
+- WGS84 ↔ UTM conversion
+- Two-control-point Local Site calibration with persistent 2D similarity transform
+- Local ↔ UTM ↔ WGS84 map projection path
+- Unit tests + Android CI
 
 ## Next
-1. MapLibre OfflineManager tile download UI
-2. Draw track/boundary directly as map layers
-3. GST/GSA parsing for receiver-reported accuracy and DOP
-4. Track distance / boundary area calculations
-5. Local-site calibration / localization
-6. Cut/fill surface and grading design
+1. Offline map pack manager: list / pause / resume / delete packs
+2. Polygon fill and point symbols on MapLibre
+3. Multi-control least-squares local calibration and residual report
+4. Antenna height / pole height corrections
+5. Geoid / orthometric height workflow
+6. Cut/fill surface, volume and grading design
 
 > Clean-room implementation; no proprietary APK source or assets are copied.
