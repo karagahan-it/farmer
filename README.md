@@ -2,28 +2,31 @@
 
 Tablet-first Android app for topographic surveying, terrain modeling and RTK field workflows.
 
-## Current development — v0.4
+## Current development — v0.6
 - Tablet-first two-pane field workspace
-- Offline project creation and persistence
-- Manual XYZ points + edit/delete
-- CSV import/export
+- Offline projects and survey points
 - LOCAL / WGS84 / UTM project CRS
 - Delaunay TIN foundation
-- MapLibre map
-- NMEA GGA parser
-- GNSS status: GPS / DGPS / RTK FIX / RTK FLOAT
-- TCP GNSS transport
-- Bluetooth RFCOMM GNSS transport foundation
-- NTRIP client with RTCM forwarding to active GNSS transport
-- Android CI build check
+- MapLibre live map
+- TCP + Bluetooth GNSS
+- NMEA GGA parser with RTK FIX/FLOAT
+- NTRIP / RTCM forwarding
+- GNSS watchdog + auto reconnect
+- One-tap RTK FIX capture
+- 5-second RTK averaging with horizontal/vertical spread
+- Correction age + base station ID display
+- Persistent Track recording
+- Persistent Boundary vertices
+- WGS84 → UTM conversion
+- Offline map region model (download pipeline next)
+- Android CI: unit tests + debug APK
 
 ## Next
-1. Bluetooth paired-device picker + runtime permission flow
-2. Real-time GNSS session controller with reconnect/watchdog
-3. Save FIX directly as survey point
-4. GGA upload to NTRIP caster where required
-5. Offline MapLibre tile packs
-6. UTM/WGS84 conversion engine
-7. Contour rendering and cut/fill surfaces
+1. MapLibre OfflineManager tile download UI
+2. Draw track/boundary directly as map layers
+3. GST/GSA parsing for receiver-reported accuracy and DOP
+4. Track distance / boundary area calculations
+5. Local-site calibration / localization
+6. Cut/fill surface and grading design
 
 > Clean-room implementation; no proprietary APK source or assets are copied.

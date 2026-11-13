@@ -16,5 +16,7 @@ data class GnssFix(
     val satellites: Int,
     val hdop: Double?,
     val fixType: FixType,
-    val utcTime: String? = null
+    val utcTime: String? = null,
+    val correctionAgeSeconds: Double? = null,
+    val baseStationId: String? = null
 )

@@ -4,8 +4,11 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -15,6 +18,8 @@ class GnssSessionController(private val scope: CoroutineScope) {
     val state: StateFlow<GnssConnectionState> = _state.asStateFlow()
     private val _fix = MutableStateFlow<GnssFix?>(null)
     val fix: StateFlow<GnssFix?> = _fix.asStateFlow()
+    private val _samples = MutableSharedFlow<GnssFix>(extraBufferCapacity = 64)
+    val samples: SharedFlow<GnssFix> = _samples.asSharedFlow()
     private var sessionJob: Job? = null
     private var currentTransport: GnssTransport? = null
     private var shouldRun = false
@@ -39,7 +44,10 @@ class GnssSessionController(private val scope: CoroutineScope) {
                         runCatching {
                             transport.lines.collect { line ->
                                 lastLineAt = System.currentTimeMillis()
-                                NmeaParser.parse(line)?.let { _fix.value = it }
+                                NmeaParser.parse(line)?.let { parsed ->
+                                    _fix.value = parsed
+                                    _samples.tryEmit(parsed)
+                                }
                             }
                         }.onFailure { _state.value = GnssConnectionState.Error(it.message ?: "GNSS stream error") }
                     }
@@ -60,9 +68,7 @@ class GnssSessionController(private val scope: CoroutineScope) {
         }
     }
 
-    suspend fun write(bytes: ByteArray) {
-        currentTransport?.write(bytes) ?: error("GNSS transport is not connected")
-    }
+    suspend fun write(bytes: ByteArray) { currentTransport?.write(bytes) ?: error("GNSS transport is not connected") }
 
     fun stop() {
         shouldRun = false

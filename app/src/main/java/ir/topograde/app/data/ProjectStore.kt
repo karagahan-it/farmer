@@ -34,31 +34,37 @@ class ProjectStore(context: Context) {
         return project
     }
 
-    fun updateProject(project: Project) {
-        saveProjects(getProjects().map { if (it.id == project.id) project else it })
-    }
+    fun updateProject(project: Project) { saveProjects(getProjects().map { if (it.id == project.id) project else it }) }
 
-    fun getPoints(projectId: Long): List<SurveyPoint> {
-        val array = JSONArray(prefs.getString("points_$projectId", "[]") ?: "[]")
+    fun getPoints(projectId: Long): List<SurveyPoint> = readPointList("points_$projectId")
+    fun addPoint(projectId: Long, point: SurveyPoint) = savePointList("points_$projectId", getPoints(projectId) + point)
+    fun updatePoint(projectId: Long, point: SurveyPoint) = savePointList("points_$projectId", getPoints(projectId).map { if (it.id == point.id) point else it })
+    fun deletePoint(projectId: Long, pointId: Long) = savePointList("points_$projectId", getPoints(projectId).filterNot { it.id == pointId })
+    fun replacePoints(projectId: Long, points: List<SurveyPoint>) = savePointList("points_$projectId", points)
+    fun appendPoints(projectId: Long, points: List<SurveyPoint>) = savePointList("points_$projectId", getPoints(projectId) + points)
+
+    fun getTrack(projectId: Long): List<SurveyPoint> = readPointList("track_$projectId")
+    fun appendTrackPoint(projectId: Long, point: SurveyPoint) = savePointList("track_$projectId", getTrack(projectId) + point)
+    fun clearTrack(projectId: Long) = savePointList("track_$projectId", emptyList())
+
+    fun getBoundary(projectId: Long): List<SurveyPoint> = readPointList("boundary_$projectId")
+    fun appendBoundaryPoint(projectId: Long, point: SurveyPoint) = savePointList("boundary_$projectId", getBoundary(projectId) + point)
+    fun clearBoundary(projectId: Long) = savePointList("boundary_$projectId", emptyList())
+
+    private fun readPointList(key: String): List<SurveyPoint> {
+        val array = JSONArray(prefs.getString(key, "[]") ?: "[]")
         return buildList {
-            for (i in 0 until array.length()) { val o = array.getJSONObject(i); add(SurveyPoint(o.getLong("id"),o.getString("name"),o.getDouble("x"),o.getDouble("y"),o.getDouble("z"))) }
+            for (i in 0 until array.length()) {
+                val o = array.getJSONObject(i)
+                add(SurveyPoint(o.getLong("id"), o.getString("name"), o.getDouble("x"), o.getDouble("y"), o.getDouble("z")))
+            }
         }
     }
 
-    fun addPoint(projectId: Long, point: SurveyPoint) = savePoints(projectId, getPoints(projectId) + point)
-
-    fun updatePoint(projectId: Long, point: SurveyPoint) = savePoints(projectId, getPoints(projectId).map { if (it.id == point.id) point else it })
-
-    fun deletePoint(projectId: Long, pointId: Long) = savePoints(projectId, getPoints(projectId).filterNot { it.id == pointId })
-
-    fun replacePoints(projectId: Long, points: List<SurveyPoint>) = savePoints(projectId, points)
-
-    fun appendPoints(projectId: Long, points: List<SurveyPoint>) = savePoints(projectId, getPoints(projectId) + points)
-
-    private fun savePoints(projectId: Long, points: List<SurveyPoint>) {
+    private fun savePointList(key: String, points: List<SurveyPoint>) {
         val array = JSONArray()
         points.forEach { p -> array.put(JSONObject().put("id",p.id).put("name",p.name).put("x",p.x).put("y",p.y).put("z",p.z)) }
-        prefs.edit().putString("points_$projectId", array.toString()).apply()
+        prefs.edit().putString(key, array.toString()).apply()
     }
 
     private fun saveProjects(projects: List<Project>) {
