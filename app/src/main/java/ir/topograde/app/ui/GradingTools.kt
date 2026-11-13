@@ -47,7 +47,7 @@ fun GradingPresetDialog(current:GradingPreset?,onDismiss:()->Unit,onSave:(Gradin
 }
 
 @Composable
-fun GradingAnalysisCard(points:List<SurveyPoint>,preset:GradingPreset?,onExport:(String)->Unit){
+fun GradingAnalysisCard(points:List<SurveyPoint>,boundary:List<SurveyPoint>,preset:GradingPreset?,onExport:(String)->Unit){
     if(preset==null){
         ElevatedCard(Modifier.fillMaxWidth()){Column(Modifier.padding(16.dp)){Text("Grading / Cut-Fill",style=MaterialTheme.typography.titleMedium);Text("سطح طراحی هنوز تعریف نشده است")}}
         return
@@ -55,10 +55,10 @@ fun GradingAnalysisCard(points:List<SurveyPoint>,preset:GradingPreset?,onExport:
     val surface=remember(preset){preset.toSurface()}
     val triangles=remember(points){TerrainEngine.triangulate(points)}
     val heat=remember(points,preset){HeatmapEngine.classify(points,surface)}
-    val volume=remember(triangles,preset){VolumeEngine.integrate(triangles,surface)}
+    val volume=remember(triangles,boundary,preset){ if(boundary.size>=3) BoundaryVolumeEngine.integrate(triangles,boundary,surface) else VolumeEngine.integrate(triangles,surface) }
     ElevatedCard(Modifier.fillMaxWidth()){Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
         Text("Grading / Cut-Fill",style=MaterialTheme.typography.titleLarge)
-        Text("Mode: "+preset.mode.name+" | TIN: "+triangles.size)
+        Text("Mode: "+preset.mode.name+" | TIN: "+triangles.size+" | Volume scope: "+if(boundary.size>=3)"Boundary" else "Full TIN")
         Text("Cut volume: "+"%.2f m³".format(volume.cutVolume))
         Text("Fill volume: "+"%.2f m³".format(volume.fillVolume))
         Text("Net: "+"%.2f m³".format(volume.netVolume))

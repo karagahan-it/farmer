@@ -33,6 +33,7 @@ import ir.topograde.app.geo.LocalSiteCalibration
 import ir.topograde.app.geometry.FieldMetrics
 import ir.topograde.app.grading.DesignPlane
 import ir.topograde.app.grading.GradingPreset
+import ir.topograde.app.grading.HeatmapEngine
 import ir.topograde.app.geometry.TerrainEngine
 import ir.topograde.app.gnss.BluetoothGnssTransport
 import ir.topograde.app.gnss.FixType
@@ -43,6 +44,7 @@ import ir.topograde.app.gnss.GnssSessionController
 import ir.topograde.app.gnss.RtkAverager
 import ir.topograde.app.gnss.TcpGnssTransport
 import ir.topograde.app.map.MapLatLon
+import ir.topograde.app.map.MapHeatPoint
 import ir.topograde.app.map.MapLibrePanel
 import ir.topograde.app.map.OfflineMapManager
 import ir.topograde.app.survey.HeightCorrection
@@ -134,6 +136,14 @@ fun SurveyScreen(store: ProjectStore, project: Project, onBack: () -> Unit) {
 
     val mapTrack = remember(track, localCalibration, project) { track.mapNotNull { pointToMap(it) } }
     val mapBoundary = remember(boundary, localCalibration, project) { boundary.mapNotNull { pointToMap(it) } }
+    val currentProjectPoint = gnssFix?.let { fixToPoint(it, "LIVE") }
+    val mapHeat = remember(points, gradingPreset, localCalibration, project) {
+        val preset = gradingPreset
+        if (preset == null) emptyList()
+        else HeatmapEngine.classify(points, preset.toSurface()).mapNotNull { hp ->
+            pointToMap(hp.point)?.let { ll -> MapHeatPoint(ll.latitude, ll.longitude, hp.clazz.name) }
+        }
+    }
 
     LaunchedEffect(fieldMessage) {
         fieldMessage?.let { snackbar.showSnackbar(it); fieldMessage = null }
@@ -263,6 +273,9 @@ fun SurveyScreen(store: ProjectStore, project: Project, onBack: () -> Unit) {
                     boundary = boundary,
                     mapTrack = mapTrack,
                     mapBoundary = mapBoundary,
+                    mapHeat = mapHeat,
+                    currentProjectPoint = currentProjectPoint,
+                    gradingPreset = gradingPreset,
                     fix = gnssFix,
                     quality = gnssQuality,
                     state = connectionState,
@@ -285,7 +298,8 @@ fun SurveyScreen(store: ProjectStore, project: Project, onBack: () -> Unit) {
                 )
             }
             item { CutFillCard(points, designPlane) }
-            item { GradingAnalysisCard(points, gradingPreset) { csv -> gradingExportCsv = csv } }
+            item { GradingAnalysisCard(points, boundary, gradingPreset) { csv -> gradingExportCsv = csv } }
+            item { ProfileSectionCard(points, boundary, gradingPreset) }
             item { Text("نقاط برداشت (" + points.size + ")", style = MaterialTheme.typography.titleLarge) }
             items(points, key = { it.id }) { p ->
                 PointRow(
@@ -366,6 +380,9 @@ private fun TabletFieldWorkspace(
     boundary: List<SurveyPoint>,
     mapTrack: List<MapLatLon>,
     mapBoundary: List<MapLatLon>,
+    mapHeat: List<MapHeatPoint>,
+    currentProjectPoint: SurveyPoint?,
+    gradingPreset: GradingPreset?,
     fix: GnssFix?,
     quality: GnssQuality,
     state: GnssConnectionState,
@@ -382,7 +399,7 @@ private fun TabletFieldWorkspace(
         if (tablet) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                 Column(Modifier.weight(1.7f), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    MapLibrePanel(fix?.latitude, fix?.longitude, mapTrack, mapBoundary)
+                    MapLibrePanel(fix?.latitude, fix?.longitude, mapTrack, mapBoundary, mapHeat)
                     PointMap(points, track, boundary)
                 }
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -390,6 +407,7 @@ private fun TabletFieldWorkspace(
                     NtripStatusCard(ntripStatus)
                     OfflineStatusCard(offlineStatus)
                     GnssStatusCard(fix, quality, averaging, onSave, onAverage, saveEnabled)
+                    GuidanceCard(currentProjectPoint, gradingPreset)
                     SurveySummary(points)
                     FieldMetricsCard(track, boundary, crs)
                 }
@@ -400,7 +418,8 @@ private fun TabletFieldWorkspace(
                 NtripStatusCard(ntripStatus)
                 OfflineStatusCard(offlineStatus)
                 GnssStatusCard(fix, quality, averaging, onSave, onAverage, saveEnabled)
-                MapLibrePanel(fix?.latitude, fix?.longitude, mapTrack, mapBoundary)
+                GuidanceCard(currentProjectPoint, gradingPreset)
+                MapLibrePanel(fix?.latitude, fix?.longitude, mapTrack, mapBoundary, mapHeat)
                 SurveySummary(points)
                 FieldMetricsCard(track, boundary, crs)
                 PointMap(points, track, boundary)
