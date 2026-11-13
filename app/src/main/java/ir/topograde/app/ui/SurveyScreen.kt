@@ -52,6 +52,9 @@ import ir.topograde.app.guidance.BaselineQualityEngine
 import ir.topograde.app.guidance.BaselineQualityLevel
 import ir.topograde.app.guidance.HeadingFusion
 import ir.topograde.app.guidance.OperatorAlertSound
+import ir.topograde.app.guidance.BaselineCalibration
+import ir.topograde.app.guidance.BaselineCalibrationEngine
+import ir.topograde.app.guidance.OrientationFilter
 import ir.topograde.app.guidance.OrientationProvider
 import ir.topograde.app.logging.GuidanceLogEntry
 import ir.topograde.app.geometry.TerrainEngine
@@ -64,6 +67,7 @@ import ir.topograde.app.gnss.GnssSessionController
 import ir.topograde.app.gnss.RtkAverager
 import ir.topograde.app.gnss.SecondaryGnssController
 import ir.topograde.app.gnss.TcpGnssTransport
+import ir.topograde.app.gnss.GnssTimeSync
 import ir.topograde.app.map.MapLatLon
 import ir.topograde.app.map.MapHeatPoint
 import ir.topograde.app.map.MapLibrePanel
@@ -75,6 +79,7 @@ import ir.topograde.app.model.Project
 import ir.topograde.app.model.SurveyPoint
 import ir.topograde.app.ntrip.NtripClient
 import ir.topograde.app.ntrip.NtripConfig
+import ir.topograde.app.report.SessionReportEngine
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlin.math.max
@@ -95,6 +100,7 @@ fun SurveyScreen(store: ProjectStore, project: Project, onBack: () -> Unit) {
     val offlineManager = remember(context) { OfflineMapManager(context.applicationContext) }
     val orientationProvider = remember(context) { OrientationProvider(context.applicationContext) }
     val alertSound = remember { OperatorAlertSound() }
+    val orientationFilter = remember { OrientationFilter() }
     val orientation by orientationProvider.orientation.collectAsState()
     var points by remember(project.id) { mutableStateOf(store.getPoints(project.id)) }
     var track by remember(project.id) { mutableStateOf(store.getTrack(project.id)) }
@@ -108,6 +114,8 @@ fun SurveyScreen(store: ProjectStore, project: Project, onBack: () -> Unit) {
     var qualityThresholds by remember(project.id) { mutableStateOf(store.getQualityThresholds(project.id)) }
     var mountingCalibration by remember(project.id) { mutableStateOf(store.getMountingCalibration(project.id)) }
     var machinePreset by remember(project.id) { mutableStateOf(store.getMachinePreset(project.id)) }
+    var machinePresetLibrary by remember { mutableStateOf(store.getMachinePresetLibrary()) }
+    var baselineCalibration by remember(project.id) { mutableStateOf(store.getBaselineCalibration(project.id)) }
     var guidanceLogs by remember(project.id) { mutableStateOf(store.getGuidanceLogs(project.id)) }
     var tracking by remember { mutableStateOf(false) }
     var lastTrackAt by remember { mutableLongStateOf(0L) }
@@ -132,6 +140,10 @@ fun SurveyScreen(store: ProjectStore, project: Project, onBack: () -> Unit) {
     var qualityThresholdDialog by remember { mutableStateOf(false) }
     var mountingDialog by remember { mutableStateOf(false) }
     var machinePresetDialog by remember { mutableStateOf(false) }
+    var presetLibraryDialog by remember { mutableStateOf(false) }
+    var baselineCalibrationDialog by remember { mutableStateOf(false) }
+    var sessionReportDialog by remember { mutableStateOf(false) }
+    var reportCsv by remember { mutableStateOf<String?>(null) }
     var secondaryTcpDialog by remember { mutableStateOf(false) }
     var secondaryBluetoothDialog by remember { mutableStateOf(false) }
     var bluetoothTargetSecondary by remember { mutableStateOf(false) }
@@ -202,7 +214,8 @@ fun SurveyScreen(store: ProjectStore, project: Project, onBack: () -> Unit) {
         }
     }
 
-    val mountedOrientation = remember(orientation, mountingCalibration) { MountingCalibrationEngine.apply(orientation, mountingCalibration) }
+    val mountedOrientationRaw = remember(orientation, mountingCalibration) { MountingCalibrationEngine.apply(orientation, mountingCalibration) }
+    val mountedOrientation = orientationFilter.update(mountedOrientationRaw)
     val baselineQuality = remember(gnssFix, secondaryFix) {
         val a=gnssFix; val b=secondaryFix
         if(a==null || b==null) BaselineQualityEngine.evaluate(null,null)
@@ -213,7 +226,9 @@ fun SurveyScreen(store: ProjectStore, project: Project, onBack: () -> Unit) {
             BaselineQualityEngine.evaluate(GnssAntennaPoint(0.0,0.0),GnssAntennaPoint(dx,dy))
         }
     }
-    val baselineHeadingDeg = baselineQuality.headingDeg.takeIf { baselineQuality.level==BaselineQualityLevel.GOOD }
+    val baselineDeviation = remember(baselineQuality.lengthMeters, baselineCalibration) { BaselineCalibrationEngine.evaluate(baselineQuality.lengthMeters, baselineCalibration) }
+    val timeSyncStatus = remember(gnssFix?.utcTime, secondaryFix?.utcTime) { GnssTimeSync.evaluate(gnssFix?.utcTime, secondaryFix?.utcTime) }
+    val baselineHeadingDeg = baselineQuality.headingDeg.takeIf { baselineQuality.level==BaselineQualityLevel.GOOD && baselineDeviation.withinTolerance && timeSyncStatus.synchronized }
     val rawDualHeading = receiverHeadingDeg ?: baselineHeadingDeg
     val fusedDualHeading = remember(mountedOrientation.headingDeg, rawDualHeading) { HeadingFusion.fuse(mountedOrientation.headingDeg, rawDualHeading) }
     val dualHeading = if(rawDualHeading==null) null else fusedDualHeading
@@ -397,6 +412,9 @@ fun SurveyScreen(store: ProjectStore, project: Project, onBack: () -> Unit) {
                     AssistChip(onClick = { mountingDialog = true }, label = { Text("IMU Mount") })
                     AssistChip(onClick = { qualityThresholdDialog = true }, label = { Text("Quality Gate") })
                     AssistChip(onClick = { machinePresetDialog = true }, label = { Text("Machine Preset") })
+                    AssistChip(onClick = { presetLibraryDialog = true }, label = { Text("Preset Library") })
+                    AssistChip(onClick = { baselineCalibrationDialog = true }, label = { Text("Baseline Cal") })
+                    AssistChip(onClick = { sessionReportDialog = true }, label = { Text("Session Report") })
                     if (project.coordinateSystem == CoordinateSystem.LOCAL) AssistChip(onClick = { calibrationDialog = true }, label = { Text("Local Calibration") })
                     AssistChip(onClick = { importDialog = true }, label = { Text("Import CSV") })
                     AssistChip(onClick = { exportDialog = true }, label = { Text("Export CSV") })
@@ -435,6 +453,16 @@ fun SurveyScreen(store: ProjectStore, project: Project, onBack: () -> Unit) {
                 )
             }
             item { GuidanceAnalyticsCard(guidanceLogs, baselineQuality, secondaryState) }
+            item {
+                ElevatedCard(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("Dual GNSS Sync", style = MaterialTheme.typography.titleMedium)
+                        Text("Nominal baseline: " + "%.3f".format(baselineCalibration.nominalLengthM) + " m | measured " + "%.3f".format(baselineQuality.lengthMeters) + " m | Δ " + "%+.3f".format(baselineDeviation.deviationM) + " m")
+                        Text("Time difference: " + (timeSyncStatus.differenceMs?.let { "$it ms" } ?: "-") + " | " + if(timeSyncStatus.synchronized) "SYNC OK" else "NOT SYNCED")
+                        if(!baselineDeviation.withinTolerance) Text("Baseline deviation خارج از تلرانس", color = MaterialTheme.colorScheme.error)
+                    }
+                }
+            }
             item { CutFillCard(points, designPlane) }
             item { GradingAnalysisCard(points, boundary, gradingPreset) { csv -> gradingExportCsv = csv } }
             item { ProfileSectionCard(points, boundary, gradingPreset) }
@@ -545,12 +573,32 @@ fun SurveyScreen(store: ProjectStore, project: Project, onBack: () -> Unit) {
         store.saveMountingCalibration(project.id,c); mountingCalibration=c; mountingDialog=false; fieldMessage="IMU mounting calibration ذخیره شد"
     }
     if (machinePresetDialog) MachinePresetDialog(machinePreset,machineGeometry,headingConfig,qualityThresholds,{machinePresetDialog=false},
-        onSave={ p -> store.saveMachinePreset(project.id,p); machinePreset=p; machinePresetDialog=false; fieldMessage="Machine Preset ذخیره شد" },
+        onSave={ p ->
+            store.saveMachinePreset(project.id,p); machinePreset=p
+            machinePresetLibrary=(machinePresetLibrary.filterNot{it.name==p.name}+p).sortedBy{it.name}
+            store.saveMachinePresetLibrary(machinePresetLibrary)
+            machinePresetDialog=false; fieldMessage="Machine Preset ذخیره شد"
+        },
         onApply={ p ->
             machineGeometry=p.geometry; headingConfig=p.headingConfig; qualityThresholds=p.qualityThresholds
             store.saveMachineGeometry(project.id,p.geometry); store.saveHeadingConfig(project.id,p.headingConfig); store.saveQualityThresholds(project.id,p.qualityThresholds)
             machinePresetDialog=false; fieldMessage="Machine Preset اعمال شد"
         })
+    if (presetLibraryDialog) MachinePresetLibraryDialog(machinePresetLibrary,{presetLibraryDialog=false},
+        onApply={ p ->
+            machineGeometry=p.geometry; headingConfig=p.headingConfig; qualityThresholds=p.qualityThresholds
+            store.saveMachineGeometry(project.id,p.geometry); store.saveHeadingConfig(project.id,p.headingConfig); store.saveQualityThresholds(project.id,p.qualityThresholds)
+            presetLibraryDialog=false; fieldMessage="Preset اعمال شد"
+        },
+        onDelete={ p ->
+            machinePresetLibrary=machinePresetLibrary.filterNot{it.name==p.name}
+            store.saveMachinePresetLibrary(machinePresetLibrary)
+        })
+    if (baselineCalibrationDialog) BaselineCalibrationDialog(baselineCalibration,{baselineCalibrationDialog=false}) { c ->
+        store.saveBaselineCalibration(project.id,c); baselineCalibration=c; baselineCalibrationDialog=false; fieldMessage="Baseline calibration ذخیره شد"
+    }
+    if (sessionReportDialog) SessionReportDialog(SessionReportEngine.build(guidanceLogs),{sessionReportDialog=false}) { csv -> reportCsv=csv }
+    reportCsv?.let { csv -> ReportCsvDialog(csv){ reportCsv=null } }
     if (headingConfigDialog) HeadingConfigDialog(headingConfig, orientation, { headingConfigDialog = false }) { cfg ->
         store.saveHeadingConfig(project.id, cfg)
         headingConfig = cfg

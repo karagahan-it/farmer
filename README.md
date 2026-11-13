@@ -2,34 +2,30 @@
 
 Tablet-first Android app for professional RTK surveying, terrain modeling and grader guidance workflows.
 
-## Current development — v0.14
-- Secondary GNSS over TCP or Bluetooth SPP
-- Primary=rear / Secondary=front dual-receiver workflow
-- Baseline length and quality validation
-- Heading fusion between tablet IMU and GNSS heading
-- Large heading innovation fallback to GNSS
-- Configurable IMU mounting calibration
-- Configurable project Quality Gate thresholds
-- Persistent Machine Presets
-- Audible operator warnings for blocked/caution guidance and large grade errors
-- Field Performance dashboard
-- On-Grade / Cut / Fill percentages
-- RTK Good / Caution / Blocked uptime percentages
-- Mean and maximum absolute grade error
-- Colored MapLibre replay for Cut / Fill / Neutral / Quality Caution / Quality Blocked
-- Existing surveying, NTRIP/RTCM, grading, profiles, earthwork volumes and offline maps remain active
+## Current development — v0.15
+- Nominal dual-GNSS baseline calibration and deviation tolerance
+- Primary/secondary GNSS UTC time synchronization check
+- Dual-GNSS heading accepted only when baseline and time sync are valid
+- Orientation low-pass filtering for heading / roll / pitch
+- Session Report from recorded Guidance logs
+- Session duration, On-Grade/Cut/Fill, RTK quality uptime and grade-error metrics
+- Session Report CSV export
+- Machine Preset Library with save/apply/delete
+- Global preset library persistence
+- Preset Library CSV codec foundation
+- Existing Secondary Bluetooth/TCP, sensor fusion, audible alerts, field analytics and replay remain active
 
 ## Safety boundary
-This release is guidance-only. Audio/haptic/visual alerts supplement operator awareness but are not a safety-rated control system. No hydraulic, CAN, valve or blade actuation is implemented.
+This release is guidance-only. Dual-GNSS heading is rejected when time synchronization or calibrated baseline checks fail. No hydraulic/CAN/valve actuation is implemented.
 
 ## Next
-1. Baseline nominal-length calibration and deviation alarm
-2. Timestamp synchronization between primary/secondary GNSS
-3. Low-pass / complementary filtering for roll and pitch
-4. Operator acknowledgement and alarm mute policy
-5. Session reports with time-on-grade and quality uptime
-6. Machine preset library import/export
-7. Blade articulation / circle rotation model
-8. Controlled field validation workflow
+1. Baseline calibration wizard using averaged stationary samples
+2. GNSS sample pairing by UTC timestamp instead of latest-value pairing
+3. Configurable orientation filter parameters
+4. Session naming/start-stop boundaries instead of one rolling project log
+5. Preset Library import/export UI
+6. PDF field validation report
+7. Alarm acknowledgement and mute controls
+8. Field calibration workflow and acceptance criteria
 
 > Clean-room implementation; no proprietary APK source or assets are copied.

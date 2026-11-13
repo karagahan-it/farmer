@@ -12,6 +12,7 @@ import ir.topograde.app.guidance.HeadingSource
 import ir.topograde.app.guidance.GuidanceQualityThresholds
 import ir.topograde.app.guidance.MountingCalibration
 import ir.topograde.app.guidance.MachinePreset
+import ir.topograde.app.guidance.BaselineCalibration
 import ir.topograde.app.logging.GuidanceLogEntry
 import ir.topograde.app.model.CoordinateSystem
 import ir.topograde.app.model.Project
@@ -197,6 +198,23 @@ class ProjectStore(context: Context) {
     fun getMachinePreset(projectId:Long):MachinePreset? {
         val raw=prefs.getString("machine_preset_$projectId",null) ?: return null
         return runCatching{ val o=JSONObject(raw); MachinePreset(o.optString("name","Custom"),MachineGeometry(o.optDouble("forward",2.5),o.optDouble("right",0.0),o.optDouble("down",2.0),o.optDouble("bladeWidth",3.7)),HeadingConfig(runCatching{HeadingSource.valueOf(o.optString("headingSource","TABLET_IMU"))}.getOrDefault(HeadingSource.TABLET_IMU),o.optDouble("manualHeadingDeg",0.0),o.optDouble("headingOffsetDeg",0.0),o.optDouble("rollZeroDeg",0.0),o.optDouble("pitchZeroDeg",0.0)),GuidanceQualityThresholds(o.optInt("minSatellites",8),o.optDouble("maxCorrectionAgeSec",5.0),o.optDouble("maxHorizontalSigmaM",0.05),o.optDouble("maxVerticalSigmaM",0.08),o.optDouble("maxPdop",3.0))) }.getOrNull()
+    }
+    fun saveBaselineCalibration(projectId:Long,c:BaselineCalibration){
+        val o=JSONObject().put("nominalLengthM",c.nominalLengthM).put("maxDeviationM",c.maxDeviationM)
+        prefs.edit().putString("baseline_cal_$projectId",o.toString()).apply()
+    }
+    fun getBaselineCalibration(projectId:Long):BaselineCalibration {
+        val raw=prefs.getString("baseline_cal_$projectId",null) ?: return BaselineCalibration()
+        return runCatching{val o=JSONObject(raw);BaselineCalibration(o.optDouble("nominalLengthM",2.0),o.optDouble("maxDeviationM",0.10))}.getOrDefault(BaselineCalibration())
+    }
+    fun saveMachinePresetLibrary(presets:List<MachinePreset>){
+        val arr=JSONArray()
+        presets.forEach{p->val g=p.geometry;val h=p.headingConfig;val q=p.qualityThresholds;arr.put(JSONObject().put("name",p.name).put("forward",g.antennaToBladeForwardM).put("right",g.antennaToBladeRightM).put("down",g.antennaToBladeDownM).put("bladeWidth",g.bladeWidthM).put("headingSource",h.source.name).put("manualHeadingDeg",h.manualHeadingDeg).put("headingOffsetDeg",h.headingOffsetDeg).put("rollZeroDeg",h.rollZeroDeg).put("pitchZeroDeg",h.pitchZeroDeg).put("minSatellites",q.minSatellites).put("maxCorrectionAgeSec",q.maxCorrectionAgeSec).put("maxHorizontalSigmaM",q.maxHorizontalSigmaM).put("maxVerticalSigmaM",q.maxVerticalSigmaM).put("maxPdop",q.maxPdop))}
+        prefs.edit().putString("machine_preset_library",arr.toString()).apply()
+    }
+    fun getMachinePresetLibrary():List<MachinePreset>{
+        val arr=JSONArray(prefs.getString("machine_preset_library","[]")?:"[]")
+        return buildList{for(i in 0 until arr.length()){val o=arr.getJSONObject(i);add(MachinePreset(o.optString("name","Preset ${i+1}"),MachineGeometry(o.optDouble("forward",2.5),o.optDouble("right",0.0),o.optDouble("down",2.0),o.optDouble("bladeWidth",3.7)),HeadingConfig(runCatching{HeadingSource.valueOf(o.optString("headingSource","TABLET_IMU"))}.getOrDefault(HeadingSource.TABLET_IMU),o.optDouble("manualHeadingDeg",0.0),o.optDouble("headingOffsetDeg",0.0),o.optDouble("rollZeroDeg",0.0),o.optDouble("pitchZeroDeg",0.0)),GuidanceQualityThresholds(o.optInt("minSatellites",8),o.optDouble("maxCorrectionAgeSec",5.0),o.optDouble("maxHorizontalSigmaM",0.05),o.optDouble("maxVerticalSigmaM",0.08),o.optDouble("maxPdop",3.0))))}}
     }
     fun saveLocalCalibration(projectId: Long, calibration: LocalSiteCalibration) {
         val t = calibration.transform
