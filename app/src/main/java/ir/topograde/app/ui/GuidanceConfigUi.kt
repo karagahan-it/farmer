@@ -10,6 +10,7 @@ import ir.topograde.app.guidance.HeadingSource
 import ir.topograde.app.guidance.Orientation
 import ir.topograde.app.logging.GuidanceLogEntry
 import ir.topograde.app.map.MapLatLon
+import ir.topograde.app.map.MapHeatPoint
 import ir.topograde.app.map.MapLibrePanel
 
 @Composable
@@ -55,7 +56,17 @@ fun GuidanceMapReplayDialog(entries:List<GuidanceLogEntry>, mapPoints:List<MapLa
         text={Column(Modifier.fillMaxWidth().heightIn(max=620.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
             if(e==null || current==null) Text("Log قابل نمایش روی نقشه نیست") else {
                 Text("Frame ${index+1}/${entries.size} | ΔZ ${"%+.3f m".format(e.deltaZ)} | Cross ${"%+.2f".format(e.actualCrossSlopePercent)}%")
-                MapLibrePanel(current.latitude,current.longitude,track=mapPoints.take(index+1))
+                val heat=entries.take(index+1).mapIndexedNotNull { i,log ->
+                    mapPoints.getOrNull(i)?.let { p ->
+                        val category=when(log.qualityLevel){
+                            "BLOCKED" -> "QUALITY_BLOCKED"
+                            "CAUTION" -> "QUALITY_CAUTION"
+                            else -> when { log.deltaZ>0.03 -> "CUT"; log.deltaZ< -0.03 -> "FILL"; else -> "NEUTRAL" }
+                        }
+                        MapHeatPoint(p.latitude,p.longitude,category)
+                    }
+                }
+                MapLibrePanel(current.latitude,current.longitude,track=mapPoints.take(index+1),heatmap=heat)
                 Slider(value=index.toFloat(),onValueChange={index=it.toInt().coerceIn(0,max)},valueRange=0f..max.toFloat().coerceAtLeast(1f),steps=(max-1).coerceAtLeast(0))
             }
         }},

@@ -92,7 +92,9 @@ private val heatStyles=listOf(
     HeatStyle("CUT",Color.rgb(255,138,128)),
     HeatStyle("NEUTRAL",Color.rgb(189,189,189)),
     HeatStyle("FILL",Color.rgb(129,212,250)),
-    HeatStyle("DEEP_FILL",Color.rgb(13,71,161))
+    HeatStyle("DEEP_FILL",Color.rgb(13,71,161)),
+    HeatStyle("QUALITY_CAUTION",Color.rgb(255,160,0)),
+    HeatStyle("QUALITY_BLOCKED",Color.rgb(213,0,0))
 )
 
 private fun ensureHeat(style: org.maplibre.android.maps.Style, heatmap:List<MapHeatPoint>) {

@@ -2,34 +2,30 @@
 
 Tablet-first Android app for professional RTK surveying, terrain modeling and grader guidance workflows.
 
-## Current development — v0.12
-- Full-screen landscape Operator Guidance
-- Tablet IMU Heading / Roll / Pitch
-- Heading source selection: Tablet IMU / receiver HDT (dual-GNSS) / Manual
-- NMEA HDT parser for dual-antenna receiver heading
-- Heading offset and Roll/Pitch zero calibration
-- Configurable antenna-to-blade geometry
-- Blade center / left / right elevation model
-- Actual vs target cross-slope
-- Guidance Quality Gate using RTK FIX, satellites, correction age, GST sigma and PDOP
-- Guidance states: GOOD / CAUTION / BLOCKED
-- Haptic warning on degraded/blocked guidance
-- Persistent Heading/IMU configuration per project
-- Guidance logging at 1 Hz
-- Replay path on MapLibre with timeline slider
-- Existing RTK, NTRIP/RTCM, Cut/Fill, profiles, boundary volume and offline maps remain active
+## Current development — v0.13
+- Independent Secondary GNSS controller over TCP
+- True dual-receiver baseline heading: Primary=rear / Secondary=front
+- Receiver HDT heading remains preferred when available
+- Tablet IMU mounting calibration relative to machine axes
+- Heading / Roll / Pitch mounting offsets
+- Configurable Guidance Quality thresholds per project
+- Machine Preset persistence and apply workflow
+- Quality-aware Guidance logging
+- Replay colors: Cut / Fill / Neutral plus Quality Caution / Blocked
+- Guidance log backwards compatibility for older sessions
+- Previous full-screen Guidance, RTK/NTRIP, Cut/Fill, profiles, offline maps and boundary volumes remain active
 
-## Safety boundary
-This release is guidance-only. If GNSS quality is blocked, numerical guidance is intentionally suppressed. No hydraulic/CAN/valve actuation is implemented. Machine control requires an independent safety architecture, interlocks, watchdogs, manual override and controlled field validation.
+## Quality / safety behavior
+Guidance stays non-actuating. RTK quality gates can block numerical guidance and logging. Thresholds are configurable, but changing them does not certify the system for machine control. Field validation is required before relying on guidance for production grading.
 
 ## Next
-1. Separate secondary GNSS transport for true dual-receiver baseline heading
-2. IMU mounting-axis calibration and filtering
-3. Guidance quality thresholds configurable per machine/job
-4. Audible alarm patterns and operator acknowledgement
-5. Replay color-coded by quality and cut/fill state
-6. Blade articulation / circle rotation model
-7. Machine presets and calibration reports
-8. Field validation accuracy dashboard
+1. Secondary GNSS Bluetooth transport and receiver role setup
+2. Baseline length / heading quality checks for dual GNSS
+3. Sensor fusion filtering for IMU + GNSS heading
+4. Machine preset library/import/export
+5. Audible alert patterns and acknowledgement
+6. Replay analytics: time on-grade, cut/fill distribution and quality uptime
+7. Blade articulation / circle rotation model
+8. Field validation report and calibration wizard
 
 > Clean-room implementation; no proprietary APK source or assets are copied.

@@ -9,6 +9,9 @@ import ir.topograde.app.grading.GradingPreset
 import ir.topograde.app.guidance.MachineGeometry
 import ir.topograde.app.guidance.HeadingConfig
 import ir.topograde.app.guidance.HeadingSource
+import ir.topograde.app.guidance.GuidanceQualityThresholds
+import ir.topograde.app.guidance.MountingCalibration
+import ir.topograde.app.guidance.MachinePreset
 import ir.topograde.app.logging.GuidanceLogEntry
 import ir.topograde.app.model.CoordinateSystem
 import ir.topograde.app.model.Project
@@ -152,7 +155,7 @@ class ProjectStore(context: Context) {
                     o.getLong("timestamp"),o.getDouble("x"),o.getDouble("y"),o.getDouble("antennaZ"),
                     o.getDouble("headingDeg"),o.getDouble("rollDeg"),o.getDouble("pitchDeg"),
                     o.getDouble("bladeCenterZ"),o.getDouble("targetZ"),o.getDouble("deltaZ"),
-                    o.getDouble("actualCrossSlopePercent"),o.getDouble("targetCrossSlopePercent")
+                    o.getDouble("actualCrossSlopePercent"),o.getDouble("targetCrossSlopePercent"),o.optString("qualityLevel","GOOD")
                 ))
             }
         }
@@ -164,10 +167,37 @@ class ProjectStore(context: Context) {
             .put("timestamp",x.timestamp).put("x",x.x).put("y",x.y).put("antennaZ",x.antennaZ)
             .put("headingDeg",x.headingDeg).put("rollDeg",x.rollDeg).put("pitchDeg",x.pitchDeg)
             .put("bladeCenterZ",x.bladeCenterZ).put("targetZ",x.targetZ).put("deltaZ",x.deltaZ)
-            .put("actualCrossSlopePercent",x.actualCrossSlopePercent).put("targetCrossSlopePercent",x.targetCrossSlopePercent)) }
+            .put("actualCrossSlopePercent",x.actualCrossSlopePercent).put("targetCrossSlopePercent",x.targetCrossSlopePercent).put("qualityLevel",x.qualityLevel)) }
         prefs.edit().putString("guidance_log_$projectId",arr.toString()).apply()
     }
     fun clearGuidanceLogs(projectId:Long){ prefs.edit().remove("guidance_log_$projectId").apply() }
+    fun saveQualityThresholds(projectId:Long, t:GuidanceQualityThresholds){
+        val o=JSONObject().put("minSatellites",t.minSatellites).put("maxCorrectionAgeSec",t.maxCorrectionAgeSec).put("maxHorizontalSigmaM",t.maxHorizontalSigmaM).put("maxVerticalSigmaM",t.maxVerticalSigmaM).put("maxPdop",t.maxPdop)
+        prefs.edit().putString("quality_thresholds_$projectId",o.toString()).apply()
+    }
+    fun getQualityThresholds(projectId:Long):GuidanceQualityThresholds {
+        val raw=prefs.getString("quality_thresholds_$projectId",null) ?: return GuidanceQualityThresholds()
+        return runCatching{ val o=JSONObject(raw); GuidanceQualityThresholds(o.optInt("minSatellites",8),o.optDouble("maxCorrectionAgeSec",5.0),o.optDouble("maxHorizontalSigmaM",0.05),o.optDouble("maxVerticalSigmaM",0.08),o.optDouble("maxPdop",3.0)) }.getOrDefault(GuidanceQualityThresholds())
+    }
+    fun saveMountingCalibration(projectId:Long, c:MountingCalibration){
+        val o=JSONObject().put("heading",c.headingMountOffsetDeg).put("roll",c.rollMountOffsetDeg).put("pitch",c.pitchMountOffsetDeg)
+        prefs.edit().putString("mounting_$projectId",o.toString()).apply()
+    }
+    fun getMountingCalibration(projectId:Long):MountingCalibration {
+        val raw=prefs.getString("mounting_$projectId",null) ?: return MountingCalibration()
+        return runCatching{ val o=JSONObject(raw); MountingCalibration(o.optDouble("heading",0.0),o.optDouble("roll",0.0),o.optDouble("pitch",0.0)) }.getOrDefault(MountingCalibration())
+    }
+    fun saveMachinePreset(projectId:Long,preset:MachinePreset){
+        val g=preset.geometry; val h=preset.headingConfig; val q=preset.qualityThresholds
+        val o=JSONObject().put("name",preset.name).put("forward",g.antennaToBladeForwardM).put("right",g.antennaToBladeRightM).put("down",g.antennaToBladeDownM).put("bladeWidth",g.bladeWidthM)
+            .put("headingSource",h.source.name).put("manualHeadingDeg",h.manualHeadingDeg).put("headingOffsetDeg",h.headingOffsetDeg).put("rollZeroDeg",h.rollZeroDeg).put("pitchZeroDeg",h.pitchZeroDeg)
+            .put("minSatellites",q.minSatellites).put("maxCorrectionAgeSec",q.maxCorrectionAgeSec).put("maxHorizontalSigmaM",q.maxHorizontalSigmaM).put("maxVerticalSigmaM",q.maxVerticalSigmaM).put("maxPdop",q.maxPdop)
+        prefs.edit().putString("machine_preset_$projectId",o.toString()).apply()
+    }
+    fun getMachinePreset(projectId:Long):MachinePreset? {
+        val raw=prefs.getString("machine_preset_$projectId",null) ?: return null
+        return runCatching{ val o=JSONObject(raw); MachinePreset(o.optString("name","Custom"),MachineGeometry(o.optDouble("forward",2.5),o.optDouble("right",0.0),o.optDouble("down",2.0),o.optDouble("bladeWidth",3.7)),HeadingConfig(runCatching{HeadingSource.valueOf(o.optString("headingSource","TABLET_IMU"))}.getOrDefault(HeadingSource.TABLET_IMU),o.optDouble("manualHeadingDeg",0.0),o.optDouble("headingOffsetDeg",0.0),o.optDouble("rollZeroDeg",0.0),o.optDouble("pitchZeroDeg",0.0)),GuidanceQualityThresholds(o.optInt("minSatellites",8),o.optDouble("maxCorrectionAgeSec",5.0),o.optDouble("maxHorizontalSigmaM",0.05),o.optDouble("maxVerticalSigmaM",0.08),o.optDouble("maxPdop",3.0))) }.getOrNull()
+    }
     fun saveLocalCalibration(projectId: Long, calibration: LocalSiteCalibration) {
         val t = calibration.transform
         val o = JSONObject().put("utmZone", calibration.utmZone).put("north", calibration.northernHemisphere).put("scale", t.scale).put("rotationRad", t.rotationRad).put("tx", t.tx).put("ty", t.ty)
