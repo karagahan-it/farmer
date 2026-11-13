@@ -2,30 +2,34 @@
 
 Tablet-first Android app for professional RTK surveying, terrain modeling and grader guidance workflows.
 
-## Current development — v0.13
-- Independent Secondary GNSS controller over TCP
-- True dual-receiver baseline heading: Primary=rear / Secondary=front
-- Receiver HDT heading remains preferred when available
-- Tablet IMU mounting calibration relative to machine axes
-- Heading / Roll / Pitch mounting offsets
-- Configurable Guidance Quality thresholds per project
-- Machine Preset persistence and apply workflow
-- Quality-aware Guidance logging
-- Replay colors: Cut / Fill / Neutral plus Quality Caution / Blocked
-- Guidance log backwards compatibility for older sessions
-- Previous full-screen Guidance, RTK/NTRIP, Cut/Fill, profiles, offline maps and boundary volumes remain active
+## Current development — v0.14
+- Secondary GNSS over TCP or Bluetooth SPP
+- Primary=rear / Secondary=front dual-receiver workflow
+- Baseline length and quality validation
+- Heading fusion between tablet IMU and GNSS heading
+- Large heading innovation fallback to GNSS
+- Configurable IMU mounting calibration
+- Configurable project Quality Gate thresholds
+- Persistent Machine Presets
+- Audible operator warnings for blocked/caution guidance and large grade errors
+- Field Performance dashboard
+- On-Grade / Cut / Fill percentages
+- RTK Good / Caution / Blocked uptime percentages
+- Mean and maximum absolute grade error
+- Colored MapLibre replay for Cut / Fill / Neutral / Quality Caution / Quality Blocked
+- Existing surveying, NTRIP/RTCM, grading, profiles, earthwork volumes and offline maps remain active
 
-## Quality / safety behavior
-Guidance stays non-actuating. RTK quality gates can block numerical guidance and logging. Thresholds are configurable, but changing them does not certify the system for machine control. Field validation is required before relying on guidance for production grading.
+## Safety boundary
+This release is guidance-only. Audio/haptic/visual alerts supplement operator awareness but are not a safety-rated control system. No hydraulic, CAN, valve or blade actuation is implemented.
 
 ## Next
-1. Secondary GNSS Bluetooth transport and receiver role setup
-2. Baseline length / heading quality checks for dual GNSS
-3. Sensor fusion filtering for IMU + GNSS heading
-4. Machine preset library/import/export
-5. Audible alert patterns and acknowledgement
-6. Replay analytics: time on-grade, cut/fill distribution and quality uptime
+1. Baseline nominal-length calibration and deviation alarm
+2. Timestamp synchronization between primary/secondary GNSS
+3. Low-pass / complementary filtering for roll and pitch
+4. Operator acknowledgement and alarm mute policy
+5. Session reports with time-on-grade and quality uptime
+6. Machine preset library import/export
 7. Blade articulation / circle rotation model
-8. Field validation report and calibration wizard
+8. Controlled field validation workflow
 
 > Clean-room implementation; no proprietary APK source or assets are copied.

@@ -48,6 +48,10 @@ import ir.topograde.app.guidance.MountingCalibrationEngine
 import ir.topograde.app.guidance.MachinePreset
 import ir.topograde.app.guidance.DualGnssHeading
 import ir.topograde.app.guidance.GnssAntennaPoint
+import ir.topograde.app.guidance.BaselineQualityEngine
+import ir.topograde.app.guidance.BaselineQualityLevel
+import ir.topograde.app.guidance.HeadingFusion
+import ir.topograde.app.guidance.OperatorAlertSound
 import ir.topograde.app.guidance.OrientationProvider
 import ir.topograde.app.logging.GuidanceLogEntry
 import ir.topograde.app.geometry.TerrainEngine
@@ -90,6 +94,7 @@ fun SurveyScreen(store: ProjectStore, project: Project, onBack: () -> Unit) {
     val secondaryState by secondaryController.state.collectAsState()
     val offlineManager = remember(context) { OfflineMapManager(context.applicationContext) }
     val orientationProvider = remember(context) { OrientationProvider(context.applicationContext) }
+    val alertSound = remember { OperatorAlertSound() }
     val orientation by orientationProvider.orientation.collectAsState()
     var points by remember(project.id) { mutableStateOf(store.getPoints(project.id)) }
     var track by remember(project.id) { mutableStateOf(store.getTrack(project.id)) }
@@ -128,6 +133,8 @@ fun SurveyScreen(store: ProjectStore, project: Project, onBack: () -> Unit) {
     var mountingDialog by remember { mutableStateOf(false) }
     var machinePresetDialog by remember { mutableStateOf(false) }
     var secondaryTcpDialog by remember { mutableStateOf(false) }
+    var secondaryBluetoothDialog by remember { mutableStateOf(false) }
+    var bluetoothTargetSecondary by remember { mutableStateOf(false) }
     var guidanceRecording by remember { mutableStateOf(false) }
     var lastGuidanceLogAt by remember { mutableLongStateOf(0L) }
     var ntripStatus by remember { mutableStateOf("خاموش") }
@@ -196,16 +203,20 @@ fun SurveyScreen(store: ProjectStore, project: Project, onBack: () -> Unit) {
     }
 
     val mountedOrientation = remember(orientation, mountingCalibration) { MountingCalibrationEngine.apply(orientation, mountingCalibration) }
-    val baselineHeadingDeg = remember(gnssFix, secondaryFix) {
+    val baselineQuality = remember(gnssFix, secondaryFix) {
         val a=gnssFix; val b=secondaryFix
-        if(a==null || b==null) null else runCatching {
+        if(a==null || b==null) BaselineQualityEngine.evaluate(null,null)
+        else {
             val lat=Math.toRadians((a.latitude+b.latitude)/2.0)
             val dx=Math.toRadians(b.longitude-a.longitude)*6378137.0*kotlin.math.cos(lat)
             val dy=Math.toRadians(b.latitude-a.latitude)*6378137.0
-            DualGnssHeading.headingDeg(GnssAntennaPoint(0.0,0.0),GnssAntennaPoint(dx,dy))
-        }.getOrNull()
+            BaselineQualityEngine.evaluate(GnssAntennaPoint(0.0,0.0),GnssAntennaPoint(dx,dy))
+        }
     }
-    val dualHeading = receiverHeadingDeg ?: baselineHeadingDeg
+    val baselineHeadingDeg = baselineQuality.headingDeg.takeIf { baselineQuality.level==BaselineQualityLevel.GOOD }
+    val rawDualHeading = receiverHeadingDeg ?: baselineHeadingDeg
+    val fusedDualHeading = remember(mountedOrientation.headingDeg, rawDualHeading) { HeadingFusion.fuse(mountedOrientation.headingDeg, rawDualHeading) }
+    val dualHeading = if(rawDualHeading==null) null else fusedDualHeading
     val resolvedOrientation = remember(mountedOrientation, dualHeading, headingConfig) { HeadingResolver.resolve(mountedOrientation, dualHeading, headingConfig) }
     val qualityStatus = remember(gnssFix, gnssQuality, qualityThresholds) { GuidanceQualityGate.evaluate(gnssFix, gnssQuality, qualityThresholds) }
     val mapTrack = remember(track, localCalibration, project) { track.mapNotNull { pointToMap(it) } }
@@ -237,6 +248,7 @@ fun SurveyScreen(store: ProjectStore, project: Project, onBack: () -> Unit) {
         orientationProvider.start()
         onDispose {
             orientationProvider.stop()
+            alertSound.release()
             controller.stop()
             secondaryController.stop()
             ntripJob?.cancel()
@@ -266,10 +278,13 @@ fun SurveyScreen(store: ProjectStore, project: Project, onBack: () -> Unit) {
     }
 
     val bluetoothPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) bluetoothDialog = true else fieldMessage = "مجوز اتصال Bluetooth داده نشد"
+        if (granted) {
+            if (bluetoothTargetSecondary) secondaryBluetoothDialog = true else bluetoothDialog = true
+        } else fieldMessage = "مجوز اتصال Bluetooth داده نشد"
     }
 
-    fun openBluetoothPicker() {
+    fun openBluetoothPicker(secondary:Boolean=false) {
+        bluetoothTargetSecondary = secondary
         val manager = context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager
         if (manager?.adapter == null) {
             fieldMessage = "Bluetooth روی این تبلت در دسترس نیست"
@@ -278,7 +293,7 @@ fun SurveyScreen(store: ProjectStore, project: Project, onBack: () -> Unit) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
             bluetoothPermission.launch(Manifest.permission.BLUETOOTH_CONNECT)
         } else {
-            bluetoothDialog = true
+            if (secondary) secondaryBluetoothDialog = true else bluetoothDialog = true
         }
     }
 
@@ -332,6 +347,23 @@ fun SurveyScreen(store: ProjectStore, project: Project, onBack: () -> Unit) {
         )
     }
 
+    val liveAlertState = remember(currentAntennaPoint, resolvedOrientation, gradingPreset, machineGeometry, qualityStatus) {
+        val antenna=currentAntennaPoint
+        val preset=gradingPreset
+        if(antenna==null || preset==null) null
+        else {
+            val blade=BladeGeometryEngine.compute(antenna.x,antenna.y,antenna.z,resolvedOrientation,machineGeometry)
+            val surface=preset.toSurface()
+            val guidance=ir.topograde.app.grading.GuidanceEngine.evaluate(blade.centerX,blade.centerY,blade.centerZ,surface,0.03)
+            val cross=CrossSlopeGuidance.evaluate(blade,resolvedOrientation,machineGeometry,surface)
+            guidance.delta to cross.errorPercent
+        }
+    }
+    LaunchedEffect(qualityStatus.level, liveAlertState) {
+        val warning=liveAlertState?.let { kotlin.math.abs(it.first)>0.15 || kotlin.math.abs(it.second)>1.0 } ?: false
+        alertSound.signal(qualityStatus.level,warning)
+    }
+
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
@@ -350,7 +382,8 @@ fun SurveyScreen(store: ProjectStore, project: Project, onBack: () -> Unit) {
             item {
                 Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     AssistChip(onClick = { tcpDialog = true }, label = { Text("TCP GNSS") })
-                    AssistChip(onClick = { openBluetoothPicker() }, label = { Text("Bluetooth GNSS") })
+                    AssistChip(onClick = { openBluetoothPicker(false) }, label = { Text("Bluetooth GNSS") })
+                    AssistChip(onClick = { openBluetoothPicker(true) }, label = { Text("Secondary BT") })
                     AssistChip(onClick = { ntripDialog = true }, label = { Text("NTRIP / RTCM") })
                     AssistChip(onClick = { secondaryTcpDialog = true }, label = { Text("Secondary GNSS") })
                     AssistChip(onClick = { tracking = !tracking }, label = { Text(if (tracking) "Stop Track" else "Start Track") })
@@ -401,6 +434,7 @@ fun SurveyScreen(store: ProjectStore, project: Project, onBack: () -> Unit) {
                     onClearBoundary = { store.clearBoundary(project.id); boundary = emptyList() }
                 )
             }
+            item { GuidanceAnalyticsCard(guidanceLogs, baselineQuality, secondaryState) }
             item { CutFillCard(points, designPlane) }
             item { GradingAnalysisCard(points, boundary, gradingPreset) { csv -> gradingExportCsv = csv } }
             item { ProfileSectionCard(points, boundary, gradingPreset) }
@@ -449,6 +483,18 @@ fun SurveyScreen(store: ProjectStore, project: Project, onBack: () -> Unit) {
             val adapter = manager?.adapter
             if (adapter == null) fieldMessage = "Bluetooth adapter در دسترس نیست"
             else controller.start { BluetoothGnssTransport(adapter, device) }
+        }
+    }
+    if (secondaryBluetoothDialog) {
+        val manager = context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager
+        BluetoothPickerDialog(manager?.adapter, { secondaryBluetoothDialog = false }) { device ->
+            secondaryBluetoothDialog = false
+            val adapter = manager?.adapter
+            if (adapter == null) fieldMessage = "Bluetooth adapter در دسترس نیست"
+            else {
+                secondaryController.start { BluetoothGnssTransport(adapter, device) }
+                fieldMessage = "Secondary Bluetooth: Primary=rear / Secondary=front"
+            }
         }
     }
     if (ntripDialog) NtripDialog({ ntripDialog = false }) { config ->
