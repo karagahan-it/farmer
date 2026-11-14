@@ -8,6 +8,7 @@ import android.bluetooth.BluetoothManager
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
+import android.os.SystemClock
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
@@ -80,8 +81,14 @@ import ir.topograde.app.model.SurveyPoint
 import ir.topograde.app.ntrip.NtripClient
 import ir.topograde.app.ntrip.NtripConfig
 import ir.topograde.app.report.SessionReportEngine
+import ir.topograde.app.sensors.SensorId
+import ir.topograde.app.sensors.SensorHealthEngine
+import ir.topograde.app.sensors.SensorHealthStatus
+import ir.topograde.app.sensors.MachineOperationMode
+import ir.topograde.app.sensors.MachineSafetySupervisor
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import kotlin.math.max
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -95,13 +102,17 @@ fun SurveyScreen(store: ProjectStore, project: Project, onBack: () -> Unit) {
     val gnssFix by controller.fix.collectAsState()
     val gnssQuality by controller.quality.collectAsState()
     val receiverHeadingDeg by controller.receiverHeadingDeg.collectAsState()
+    val primaryLastFixElapsedMs by controller.lastFixElapsedMs.collectAsState()
     val secondaryFix by secondaryController.fix.collectAsState()
+    val secondaryLastFixElapsedMs by secondaryController.lastFixElapsedMs.collectAsState()
+    val secondaryQuality by secondaryController.quality.collectAsState()
     val secondaryState by secondaryController.state.collectAsState()
     val offlineManager = remember(context) { OfflineMapManager(context.applicationContext) }
     val orientationProvider = remember(context) { OrientationProvider(context.applicationContext) }
     val alertSound = remember { OperatorAlertSound() }
     val orientationFilter = remember { OrientationFilter() }
     val orientation by orientationProvider.orientation.collectAsState()
+    val orientationSensorHealth by orientationProvider.health.collectAsState()
     var points by remember(project.id) { mutableStateOf(store.getPoints(project.id)) }
     var track by remember(project.id) { mutableStateOf(store.getTrack(project.id)) }
     var boundary by remember(project.id) { mutableStateOf(store.getBoundary(project.id)) }
@@ -155,6 +166,14 @@ fun SurveyScreen(store: ProjectStore, project: Project, onBack: () -> Unit) {
     var ntripJob by remember { mutableStateOf<Job?>(null) }
     var ntripClient by remember { mutableStateOf<NtripClient?>(null) }
     val snackbar = remember { SnackbarHostState() }
+    var healthClock by remember { mutableLongStateOf(SystemClock.elapsedRealtime()) }
+
+    LaunchedEffect(Unit) {
+        while (true) {
+            healthClock = SystemClock.elapsedRealtime()
+            delay(500L)
+        }
+    }
 
     fun fixToPoint(fix: GnssFix, name: String): SurveyPoint? {
         val rawZ = fix.altitude ?: return null
@@ -215,7 +234,36 @@ fun SurveyScreen(store: ProjectStore, project: Project, onBack: () -> Unit) {
     }
 
     val mountedOrientationRaw = remember(orientation, mountingCalibration) { MountingCalibrationEngine.apply(orientation, mountingCalibration) }
-    val mountedOrientation = orientationFilter.update(mountedOrientationRaw)
+    val mountedOrientation = remember(mountedOrientationRaw) { orientationFilter.update(mountedOrientationRaw) }
+    val primarySensorHealth = remember(connectionState, gnssFix, primaryLastFixElapsedMs, gnssQuality, qualityThresholds, healthClock) {
+        SensorHealthEngine.evaluateGnss(
+            SensorId.PRIMARY_GNSS, "گیرنده GPS اصلی",
+            connectionState is GnssConnectionState.Connected, gnssFix, primaryLastFixElapsedMs,
+            gnssQuality, healthClock, qualityThresholds
+        )
+    }
+    val secondarySensorHealth = remember(secondaryState, secondaryFix, secondaryLastFixElapsedMs, secondaryQuality, healthClock) {
+        SensorHealthEngine.evaluateGnss(
+            SensorId.SECONDARY_GNSS, "گیرنده GPS دوم",
+            secondaryState is GnssConnectionState.Connected, secondaryFix, secondaryLastFixElapsedMs,
+            secondaryQuality, healthClock, qualityThresholds
+        )
+    }
+    val imuSensorHealth = remember(orientationSensorHealth, healthClock) {
+        SensorHealthEngine.evaluateImu(orientationSensorHealth, healthClock)
+    }
+    val sensorHealthStatuses = listOf(
+        primarySensorHealth,
+        secondarySensorHealth,
+        imuSensorHealth,
+        SensorHealthEngine.notConfigured(SensorId.MACHINE_IMU, "شیب‌سنج صنعتی ماشین"),
+        SensorHealthEngine.notConfigured(SensorId.BLADE_POSITION, "سنسور موقعیت تیغه"),
+        SensorHealthEngine.notConfigured(SensorId.HYDRAULIC_PRESSURE, "سنسور فشار هیدرولیک"),
+        SensorHealthEngine.notConfigured(SensorId.WHEEL_SPEED, "سنسور سرعت چرخ"),
+        SensorHealthEngine.notConfigured(SensorId.STEERING_ANGLE, "سنسور زاویه فرمان"),
+        SensorHealthEngine.notConfigured(SensorId.SAFETY_CONTROLLER, "کنترلر ایمنی ماشین"),
+        SensorHealthEngine.notConfigured(SensorId.LASER_RECEIVER, "گیرنده لیزر (در صورت استفاده)")
+    )
     val baselineQuality = remember(gnssFix, secondaryFix) {
         val a=gnssFix; val b=secondaryFix
         if(a==null || b==null) BaselineQualityEngine.evaluate(null,null)
@@ -228,12 +276,64 @@ fun SurveyScreen(store: ProjectStore, project: Project, onBack: () -> Unit) {
     }
     val baselineDeviation = remember(baselineQuality.lengthMeters, baselineCalibration) { BaselineCalibrationEngine.evaluate(baselineQuality.lengthMeters, baselineCalibration) }
     val timeSyncStatus = remember(gnssFix?.utcTime, secondaryFix?.utcTime) { GnssTimeSync.evaluate(gnssFix?.utcTime, secondaryFix?.utcTime) }
-    val baselineHeadingDeg = baselineQuality.headingDeg.takeIf { baselineQuality.level==BaselineQualityLevel.GOOD && baselineDeviation.withinTolerance && timeSyncStatus.synchronized }
+    val baselineHeadingDeg = baselineQuality.headingDeg.takeIf {
+        baselineQuality.level == BaselineQualityLevel.GOOD &&
+            baselineDeviation.withinTolerance &&
+            timeSyncStatus.synchronized &&
+            primarySensorHealth.level in setOf(ir.topograde.app.sensors.SensorHealthLevel.GOOD, ir.topograde.app.sensors.SensorHealthLevel.CAUTION) &&
+            secondarySensorHealth.level in setOf(ir.topograde.app.sensors.SensorHealthLevel.GOOD, ir.topograde.app.sensors.SensorHealthLevel.CAUTION)
+    }
     val rawDualHeading = receiverHeadingDeg ?: baselineHeadingDeg
     val fusedDualHeading = remember(mountedOrientation.headingDeg, rawDualHeading) { HeadingFusion.fuse(mountedOrientation.headingDeg, rawDualHeading) }
     val dualHeading = if(rawDualHeading==null) null else fusedDualHeading
     val resolvedOrientation = remember(mountedOrientation, dualHeading, headingConfig) { HeadingResolver.resolve(mountedOrientation, dualHeading, headingConfig) }
-    val qualityStatus = remember(gnssFix, gnssQuality, qualityThresholds) { GuidanceQualityGate.evaluate(gnssFix, gnssQuality, qualityThresholds) }
+
+    val gnssQualityStatus = remember(gnssFix, gnssQuality, qualityThresholds) {
+        GuidanceQualityGate.evaluate(gnssFix, gnssQuality, qualityThresholds)
+    }
+    val qualityStatus = remember(gnssQualityStatus, primarySensorHealth, imuSensorHealth, secondarySensorHealth, dualHeading, headingConfig) {
+        val reasons = mutableListOf<String>()
+        reasons += gnssQualityStatus.reasons
+        if (primarySensorHealth.level == ir.topograde.app.sensors.SensorHealthLevel.CAUTION) reasons += primarySensorHealth.message
+        if (imuSensorHealth.level == ir.topograde.app.sensors.SensorHealthLevel.CAUTION) reasons += imuSensorHealth.message
+        if (primarySensorHealth.level in setOf(ir.topograde.app.sensors.SensorHealthLevel.BLOCKED, ir.topograde.app.sensors.SensorHealthLevel.DISCONNECTED, ir.topograde.app.sensors.SensorHealthLevel.WAITING)) {
+            reasons += primarySensorHealth.message
+        }
+        if (imuSensorHealth.level in setOf(ir.topograde.app.sensors.SensorHealthLevel.BLOCKED, ir.topograde.app.sensors.SensorHealthLevel.DISCONNECTED, ir.topograde.app.sensors.SensorHealthLevel.WAITING, ir.topograde.app.sensors.SensorHealthLevel.NOT_CONFIGURED)) {
+            reasons += imuSensorHealth.message
+        }
+        val dualHeadingMissing = headingConfig.source == ir.topograde.app.guidance.HeadingSource.DUAL_GNSS &&
+            (dualHeading == null || secondarySensorHealth.level !in setOf(ir.topograde.app.sensors.SensorHealthLevel.GOOD, ir.topograde.app.sensors.SensorHealthLevel.CAUTION))
+        if (dualHeadingMissing) reasons += "گیرنده GPS دوم یا جهت ماشین آماده نیست"
+        val blocked = dualHeadingMissing || gnssQualityStatus.level == GuidanceQualityLevel.BLOCKED ||
+            primarySensorHealth.level in setOf(ir.topograde.app.sensors.SensorHealthLevel.BLOCKED, ir.topograde.app.sensors.SensorHealthLevel.DISCONNECTED, ir.topograde.app.sensors.SensorHealthLevel.WAITING) ||
+            imuSensorHealth.level in setOf(ir.topograde.app.sensors.SensorHealthLevel.BLOCKED, ir.topograde.app.sensors.SensorHealthLevel.DISCONNECTED, ir.topograde.app.sensors.SensorHealthLevel.WAITING, ir.topograde.app.sensors.SensorHealthLevel.NOT_CONFIGURED)
+        val caution = gnssQualityStatus.level == GuidanceQualityLevel.CAUTION ||
+            primarySensorHealth.level == ir.topograde.app.sensors.SensorHealthLevel.CAUTION ||
+            imuSensorHealth.level == ir.topograde.app.sensors.SensorHealthLevel.CAUTION
+        when {
+            blocked -> ir.topograde.app.guidance.GuidanceQualityStatus(GuidanceQualityLevel.BLOCKED, reasons.distinct())
+            caution -> ir.topograde.app.guidance.GuidanceQualityStatus(GuidanceQualityLevel.CAUTION, reasons.distinct())
+            else -> ir.topograde.app.guidance.GuidanceQualityStatus(GuidanceQualityLevel.GOOD, emptyList())
+        }
+    }
+    val machineSafetyBase = remember(sensorHealthStatuses) {
+        MachineSafetySupervisor.evaluate(MachineOperationMode.OPERATOR_GUIDANCE, sensorHealthStatuses)
+    }
+    val machineSafetyDecision = remember(machineSafetyBase, qualityStatus) {
+        when (qualityStatus.level) {
+            GuidanceQualityLevel.BLOCKED -> machineSafetyBase.copy(
+                state = ir.topograde.app.sensors.MachineSafetyState.BLOCKED,
+                canUseGuidance = false,
+                reasons = (machineSafetyBase.reasons + qualityStatus.reasons).distinct()
+            )
+            GuidanceQualityLevel.CAUTION -> machineSafetyBase.copy(
+                state = ir.topograde.app.sensors.MachineSafetyState.LIMITED,
+                reasons = (machineSafetyBase.reasons + qualityStatus.reasons).distinct()
+            )
+            GuidanceQualityLevel.GOOD -> machineSafetyBase
+        }
+    }
     val mapTrack = remember(track, localCalibration, project) { track.mapNotNull { pointToMap(it) } }
     val mapBoundary = remember(boundary, localCalibration, project) { boundary.mapNotNull { pointToMap(it) } }
     val currentProjectPoint = gnssFix?.let { fixToPoint(it, "LIVE") }
@@ -463,6 +563,7 @@ fun SurveyScreen(store: ProjectStore, project: Project, onBack: () -> Unit) {
                     }
                 }
             }
+            item { SensorHealthCard(sensorHealthStatuses, machineSafetyDecision) }
             item { CutFillCard(points, designPlane) }
             item { GradingAnalysisCard(points, boundary, gradingPreset) { csv -> gradingExportCsv = csv } }
             item { ProfileSectionCard(points, boundary, gradingPreset) }
@@ -569,7 +670,7 @@ fun SurveyScreen(store: ProjectStore, project: Project, onBack: () -> Unit) {
     if (qualityThresholdDialog) QualityThresholdDialog(qualityThresholds, { qualityThresholdDialog = false }) { t ->
         store.saveQualityThresholds(project.id,t); qualityThresholds=t; qualityThresholdDialog=false; fieldMessage="Quality thresholds ذخیره شد"
     }
-    if (mountingDialog) MountingCalibrationDialog(mountingCalibration, orientation, { mountingDialog = false }) { c ->
+    if (mountingDialog) MountingCalibrationDialog(mountingCalibration, orientation, orientationProvider.samples, { mountingDialog = false }) { c ->
         store.saveMountingCalibration(project.id,c); mountingCalibration=c; mountingDialog=false; fieldMessage="IMU mounting calibration ذخیره شد"
     }
     if (machinePresetDialog) MachinePresetDialog(machinePreset,machineGeometry,headingConfig,qualityThresholds,{machinePresetDialog=false},

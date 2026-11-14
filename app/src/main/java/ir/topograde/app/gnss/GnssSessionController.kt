@@ -12,12 +12,15 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import android.os.SystemClock
 
 class GnssSessionController(private val scope: CoroutineScope) {
     private val _state = MutableStateFlow<GnssConnectionState>(GnssConnectionState.Disconnected)
     val state: StateFlow<GnssConnectionState> = _state.asStateFlow()
     private val _fix = MutableStateFlow<GnssFix?>(null)
     val fix: StateFlow<GnssFix?> = _fix.asStateFlow()
+    private val _lastFixElapsedMs = MutableStateFlow<Long?>(null)
+    val lastFixElapsedMs: StateFlow<Long?> = _lastFixElapsedMs.asStateFlow()
     private val _quality = MutableStateFlow(GnssQuality())
     val quality: StateFlow<GnssQuality> = _quality.asStateFlow()
     private val _receiverHeadingDeg = MutableStateFlow<Double?>(null)
@@ -43,13 +46,14 @@ class GnssSessionController(private val scope: CoroutineScope) {
                 _state.value = connection
                 if (connection is GnssConnectionState.Connected) {
                     retryMs = 1500L
-                    var lastLineAt = System.currentTimeMillis()
+                    var lastLineAt = SystemClock.elapsedRealtime()
                     val readJob = launch {
                         runCatching {
                             transport.lines.collect { line ->
-                                lastLineAt = System.currentTimeMillis()
+                                lastLineAt = SystemClock.elapsedRealtime()
                                 NmeaParser.parse(line)?.let { parsed ->
                                     _fix.value = parsed
+                                    _lastFixElapsedMs.value = SystemClock.elapsedRealtime()
                                     _samples.tryEmit(parsed)
                                 }
                                 NmeaQualityParser.parse(line)?.let { q -> _quality.value = _quality.value.merge(q) }
@@ -59,7 +63,7 @@ class GnssSessionController(private val scope: CoroutineScope) {
                     }
                     while (shouldRun && readJob.isActive) {
                         delay(2000)
-                        if (System.currentTimeMillis() - lastLineAt > 10000) {
+                        if (SystemClock.elapsedRealtime() - lastLineAt > 10000) {
                             _state.value = GnssConnectionState.Error("GNSS stream timeout; reconnecting")
                             readJob.cancelAndJoin()
                             break
@@ -78,6 +82,10 @@ class GnssSessionController(private val scope: CoroutineScope) {
 
     fun stop() {
         shouldRun = false
+        _fix.value = null
+        _lastFixElapsedMs.value = null
+        _quality.value = GnssQuality()
+        _receiverHeadingDeg.value = null
         sessionJob?.cancel()
         sessionJob = null
         val transport = currentTransport
